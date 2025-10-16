@@ -1,0 +1,348 @@
+version: '3.8'
+
+# ============================================================================
+# HYBRID APPROACH - Maximum Cost Savings (78%)
+# ============================================================================
+# Author: Adrian Johnson <adrian207@gmail.com>
+# 
+# This configuration uses:
+# - Docker Compose for EJBCA (this file)
+# - Azure-managed services for everything else:
+#   * Azure Database for PostgreSQL (Flexible Server)
+#   * Azure Monitor (Managed Prometheus + Grafana)
+#   * Azure Application Insights (tracing)
+#   * Azure Container Registry (instead of Harbor)
+#   * Azure Key Vault (HSM-backed CA keys)
+#   * Azure Storage (backups)
+#   * Azure Bastion (secure access)
+#
+# Cost: $405/month (dev) | $1,440/month (prod)
+# Savings: 78% (dev) | 69% (prod) vs. AKS
+# ============================================================================
+
+services:
+  # ============================================================================
+  # EJBCA CE - Certificate Authority (ONLY service in Docker)
+  # ============================================================================
+  ejbca:
+    image: ${ACR_REGISTRY:-ejbcapki.azurecr.io}/ejbca-ce:8.3.0
+    container_name: ejbca
+    hostname: ${EJBCA_HOSTNAME:-ejbca}
+    ports:
+      - "8080:8080"   # HTTP Admin UI
+      - "8443:8443"   # HTTPS Public Web
+      - "8444:8444"   # HTTPS Admin UI
+    environment:
+      # ========================================================================
+      # Azure Database for PostgreSQL (Managed Service)
+      # ========================================================================
+      DATABASE_JDBC_URL: jdbc:postgresql://${POSTGRES_HOST}:5432/${POSTGRES_DB}?sslmode=require
+      DATABASE_USER: ${POSTGRES_USER}
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      
+      # ========================================================================
+      # Azure Key Vault Integration (HSM-backed CA Keys)
+      # ========================================================================
+      AZURE_KEYVAULT_NAME: ${AZURE_KEYVAULT_NAME}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID}
+      AZURE_CLIENT_ID: ${MANAGED_IDENTITY_CLIENT_ID}
+      AZURE_USE_MANAGED_IDENTITY: "true"
+      
+      # Root CA key in Azure Key Vault HSM
+      EJBCA_ROOT_CA_KEYVAULT_KEY: ${ROOT_CA_KEY_NAME:-ejbca-root-ca}
+      EJBCA_ROOT_CA_KEYVAULT_CERTIFICATE: ${ROOT_CA_CERT_NAME:-ejbca-root-ca-cert}
+      
+      # ========================================================================
+      # Azure Application Insights (Distributed Tracing)
+      # ========================================================================
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPINSIGHTS_CONNECTION_STRING}
+      APPLICATIONINSIGHTS_ROLE_NAME: ejbca-ce
+      APPLICATIONINSIGHTS_INSTRUMENTATION_LOGGING_LEVEL: INFO
+      
+      # ========================================================================
+      # Azure Monitor Integration
+      # ========================================================================
+      PROMETHEUS_ENDPOINT: ${AZURE_MONITOR_PROMETHEUS_ENDPOINT}
+      PROMETHEUS_PUSH_GATEWAY: ${PROMETHEUS_PUSH_GATEWAY_URL}
+      
+      # ========================================================================
+      # TLS Configuration
+      # ========================================================================
+      TLS_SETUP_ENABLED: "true"
+      TLS_HOSTNAME: ${EJBCA_PUBLIC_HOSTNAME}
+      TLS_CERT_FROM_KEYVAULT: "true"
+      TLS_KEYVAULT_CERT_NAME: ${TLS_CERT_NAME:-ejbca-tls}
+      
+      # ========================================================================
+      # EJBCA Configuration
+      # ========================================================================
+      EJBCA_CLI_DEFAULTPASSWORD: ${EJBCA_CLI_PASSWORD}
+      
+      # Certificate profiles from Azure Storage
+      EJBCA_IMPORT_CERT_PROFILES_FROM_AZURE: "true"
+      AZURE_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
+      AZURE_STORAGE_CONTAINER: ejbca-config
+      
+      # ========================================================================
+      # Java Heap Settings (adjust based on VM size)
+      # ========================================================================
+      INITIAL_HEAP: ${JAVA_INITIAL_HEAP:-2048m}
+      MAX_HEAP: ${JAVA_MAX_HEAP:-8192m}
+      
+      # JVM options for production
+      JAVA_OPTS: >-
+        -XX:+UseG1GC
+        -XX:MaxGCPauseMillis=200
+        -XX:+UseStringDeduplication
+        -XX:+ParallelRefProcEnabled
+        -XX:+UnlockExperimentalVMOptions
+        -XX:G1NewSizePercent=30
+        -XX:G1MaxNewSizePercent=40
+        -Djava.net.preferIPv4Stack=true
+      
+      # ========================================================================
+      # Logging Configuration
+      # ========================================================================
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_TO_APPINSIGHTS: "true"
+      
+      # Azure Storage for audit logs
+      AUDIT_LOG_TO_AZURE_STORAGE: "true"
+      AUDIT_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
+      AUDIT_STORAGE_CONTAINER: ejbca-audit-logs
+      
+      # ========================================================================
+      # Backup Configuration
+      # ========================================================================
+      BACKUP_TO_AZURE_STORAGE: "true"
+      BACKUP_STORAGE_ACCOUNT: ${AZURE_STORAGE_ACCOUNT}
+      BACKUP_STORAGE_CONTAINER: ejbca-backups
+      BACKUP_SCHEDULE: "0 2 * * *"  # Daily at 2 AM
+      
+      # ========================================================================
+      # Environment & Region
+      # ========================================================================
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      AZURE_REGION: ${AZURE_REGION:-eastus}
+      TZ: UTC
+      
+    volumes:
+      # Azure Files mounts (persistent storage)
+      - ${AZURE_FILES_MOUNT_PATH:-/mnt/azure-files}/ejbca-p12:/opt/ejbca/p12
+      - ${AZURE_FILES_MOUNT_PATH:-/mnt/azure-files}/ejbca-config:/opt/primekey/conf
+      - ${AZURE_FILES_MOUNT_PATH:-/mnt/azure-files}/ejbca-logs:/opt/ejbca/wildfly/standalone/log
+      
+      # Local configuration (optional)
+      - ./configs/ejbca:/mnt/external-config:ro
+      
+    deploy:
+      resources:
+        limits:
+          # Development VM (Standard_D4s_v3): 4 vCPU, 16GB RAM
+          # Production VM (Standard_D8s_v3): 8 vCPU, 32GB RAM
+          cpus: '${EJBCA_CPU_LIMIT:-4}'
+          memory: ${EJBCA_MEMORY_LIMIT:-12G}
+        reservations:
+          cpus: '${EJBCA_CPU_RESERVATION:-2}'
+          memory: ${EJBCA_MEMORY_RESERVATION:-6G}
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: |
+        curl -f http://localhost:8080/ejbca/publicweb/healthcheck/ejbcahealth || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    
+    networks:
+      - pki-network
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=ejbca,environment=${ENVIRONMENT:-dev},version=8.3.0"
+
+  # ============================================================================
+  # NGINX - Reverse Proxy & TLS Termination
+  # ============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    hostname: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Azure Application Gateway handles external TLS
+      # NGINX handles internal routing only
+      EJBCA_BACKEND: ejbca:8443
+    volumes:
+      - ./nginx/nginx-hybrid.conf:/etc/nginx/nginx.conf:ro
+      - ${AZURE_FILES_MOUNT_PATH:-/mnt/azure-files}/nginx-logs:/var/log/nginx
+      
+      # TLS certificates from Azure Key Vault (mounted by init script)
+      - /etc/ssl/azure-certs:/etc/nginx/ssl:ro
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    
+    networks:
+      - pki-network
+    
+    depends_on:
+      ejbca:
+        condition: service_healthy
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ============================================================================
+  # Azure Monitor Agent Sidecar (optional - for custom metrics)
+  # ============================================================================
+  azure-monitor-agent:
+    image: mcr.microsoft.com/azuremonitor/containerinsights/ciprod:3.1.0
+    container_name: azure-monitor-agent
+    privileged: true
+    environment:
+      AZMON_WORKSPACE_ID: ${LOG_ANALYTICS_WORKSPACE_ID}
+      AZMON_WORKSPACE_KEY: ${LOG_ANALYTICS_WORKSPACE_KEY}
+      AZMON_COLLECT_ENV: "true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /proc:/hostfs/proc:ro
+      - /sys:/hostfs/sys:ro
+    networks:
+      - pki-network
+    restart: unless-stopped
+
+# ==============================================================================
+# Volumes (Azure Files Storage Accounts - configured via VM init)
+# ==============================================================================
+# Note: Azure Files are mounted at /mnt/azure-files on the VM
+# This is configured in the VM initialization script via Terraform
+# ==============================================================================
+volumes:
+  # These are just mount points - actual storage is Azure Files
+  ejbca-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${AZURE_FILES_MOUNT_PATH:-/mnt/azure-files}/ejbca-p12
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  pki-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/16
+          gateway: 172.28.0.1
+
+# ==============================================================================
+# EXTERNAL SERVICES (Azure-Managed - NOT in Docker)
+# ==============================================================================
+# 
+# The following services are managed by Azure (provisioned via Terraform):
+#
+# 1. Azure Database for PostgreSQL Flexible Server
+#    - Hostname: ${POSTGRES_HOST} (e.g., ejbca-pki-dev.postgres.database.azure.com)
+#    - Port: 5432
+#    - Database: ejbca
+#    - Cost: $120/month (dev), $340/month (prod)
+#
+# 2. Azure Monitor (Managed Prometheus + Grafana)
+#    - Prometheus endpoint: ${AZURE_MONITOR_PROMETHEUS_ENDPOINT}
+#    - Grafana endpoint: ${AZURE_GRAFANA_ENDPOINT}
+#    - Cost: $50/month (dev), $150/month (prod)
+#
+# 3. Azure Application Insights
+#    - Connection string: ${APPINSIGHTS_CONNECTION_STRING}
+#    - Distributed tracing, logs, metrics
+#    - Cost: $30/month (dev), $100/month (prod)
+#
+# 4. Azure Container Registry
+#    - Registry: ${ACR_REGISTRY}
+#    - Cost: $5/month (Basic), $20/month (Standard)
+#
+# 5. Azure Key Vault (Premium with HSM)
+#    - Vault: ${AZURE_KEYVAULT_NAME}
+#    - HSM-backed CA root keys (FIPS 140-2 Level 2)
+#    - Cost: $10/month (dev), $25/month (prod)
+#
+# 6. Azure Storage Account (GRS)
+#    - Account: ${AZURE_STORAGE_ACCOUNT}
+#    - Containers: ejbca-config, ejbca-backups, ejbca-audit-logs
+#    - Cost: $20/month (dev), $80/month (prod)
+#
+# 7. Azure Bastion
+#    - Secure RDP/SSH access (no public IPs on VMs)
+#    - Cost: $140/month (both dev and prod)
+#
+# 8. Azure Virtual Network
+#    - VNet, subnets, NSGs, private endpoints
+#    - Cost: $20/month (dev), $50/month (prod)
+#
+# 9. Azure Virtual Machines
+#    - Dev: 1x Standard_D4s_v3 (4 vCPU, 16GB RAM) = $170/month
+#    - Prod: 3x Standard_D4s_v3 (4 vCPU, 16GB RAM each) = $510/month
+#    - Or Prod: 3x Standard_D8s_v3 (8 vCPU, 32GB RAM each) = $1,020/month
+#
+# 10. Azure Load Balancer (Production only)
+#     - Standard SKU
+#     - Cost: $25/month
+#
+# ==============================================================================
+# TOTAL COST BREAKDOWN
+# ==============================================================================
+#
+# Development Environment:
+#   VM (1x D4s_v3):              $170/month
+#   PostgreSQL (Basic):          $120/month
+#   Azure Monitor:               $50/month
+#   Application Insights:        $30/month
+#   Container Registry (Basic):  $5/month
+#   Key Vault (Standard):        $10/month
+#   Storage (LRS):               $20/month
+#   Networking:                  $20/month
+#   ----------------------------------------
+#   TOTAL:                       $425/month  (77% savings vs. $1,835 AKS)
+#
+# Production Environment:
+#   VMs (3x D4s_v3):             $510/month
+#   Load Balancer:               $25/month
+#   PostgreSQL (GP, 4 vCores):   $340/month
+#   Azure Monitor:               $150/month
+#   Application Insights:        $100/month
+#   Container Registry (Std):    $20/month
+#   Key Vault (Premium HSM):     $25/month
+#   Storage (GRS):               $80/month
+#   Bastion:                     $140/month
+#   Networking:                  $50/month
+#   ----------------------------------------
+#   TOTAL:                       $1,440/month  (69% savings vs. $4,585 AKS)
+#
+# ==============================================================================
+
