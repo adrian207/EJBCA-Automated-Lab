@@ -1,0 +1,434 @@
+---
+- name: Configure RHEL for PKI Platform
+  hosts: rhel
+  become: yes
+  gather_facts: yes
+
+  vars:
+    java_version: java-11-openjdk
+    pki_base_dir: /opt/pki
+    required_packages:
+      - git
+      - curl
+      - wget
+      - vim
+      - openssl
+      - "{{ java_version }}"
+      - "{{ java_version }}-devel"
+      - python3
+      - python3-pip
+      - ansible
+      - podman
+      - buildah
+      - skopeo
+      - container-tools
+      - bind-utils
+      - net-tools
+      - tcpdump
+      - telnet
+      - nc
+      - jq
+      - yq
+
+  tasks:
+    - name: Update system packages
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+
+    - name: Install EPEL repository
+      ansible.builtin.dnf:
+        name: 
+          - epel-release
+        state: present
+
+    - name: Enable CodeReady Builder repository
+      community.general.rhsm_repository:
+        name: codeready-builder-for-rhel-9-x86_64-rpms
+        state: enabled
+      ignore_errors: yes
+
+    - name: Install required packages
+      ansible.builtin.dnf:
+        name: "{{ required_packages }}"
+        state: present
+
+    - name: Install Azure CLI
+      block:
+        - name: Import Microsoft repository key
+          ansible.builtin.rpm_key:
+            key: https://packages.microsoft.com/keys/microsoft.asc
+            state: present
+
+        - name: Add Azure CLI repository
+          ansible.builtin.yum_repository:
+            name: azure-cli
+            description: Azure CLI
+            baseurl: https://packages.microsoft.com/yumrepos/azure-cli
+            enabled: yes
+            gpgcheck: yes
+            gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+
+        - name: Install Azure CLI
+          ansible.builtin.dnf:
+            name: azure-cli
+            state: present
+
+    - name: Install kubectl
+      block:
+        - name: Download kubectl binary
+          ansible.builtin.get_url:
+            url: https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl
+            dest: /usr/local/bin/kubectl
+            mode: '0755'
+
+        - name: Verify kubectl installation
+          ansible.builtin.command: kubectl version --client
+          register: kubectl_version
+
+    - name: Install Helm
+      block:
+        - name: Download Helm installation script
+          ansible.builtin.get_url:
+            url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+            dest: /tmp/get_helm.sh
+            mode: '0700'
+
+        - name: Install Helm
+          ansible.builtin.command: /tmp/get_helm.sh
+          args:
+            creates: /usr/local/bin/helm
+
+    - name: Install Terraform
+      block:
+        - name: Add HashiCorp repository
+          ansible.builtin.yum_repository:
+            name: hashicorp
+            description: HashiCorp Stable
+            baseurl: https://rpm.releases.hashicorp.com/RHEL/$releasever/$basearch/stable
+            enabled: yes
+            gpgcheck: yes
+            gpgkey: https://rpm.releases.hashicorp.com/gpg
+
+        - name: Install Terraform
+          ansible.builtin.dnf:
+            name: terraform
+            state: present
+
+    - name: Create PKI directory structure
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - "{{ pki_base_dir }}"
+        - "{{ pki_base_dir }}/certs"
+        - "{{ pki_base_dir }}/requests"
+        - "{{ pki_base_dir }}/scripts"
+        - "{{ pki_base_dir }}/logs"
+        - "{{ pki_base_dir }}/config"
+        - /etc/pki/ejbca
+        - /var/log/pki
+
+    - name: Configure firewall for PKI services
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: yes
+        state: enabled
+        immediate: yes
+      loop:
+        - 80/tcp
+        - 443/tcp
+        - 8080/tcp
+        - 8442/tcp
+        - 8443/tcp
+      ignore_errors: yes
+
+    - name: Install Python packages for PKI operations
+      ansible.builtin.pip:
+        name:
+          - cryptography
+          - pyOpenSSL
+          - certifi
+          - azure-identity
+          - azure-keyvault-secrets
+          - azure-keyvault-certificates
+          - kubernetes
+          - requests
+        state: present
+        executable: pip3
+
+    - name: Create certificate enrollment script
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Certificate Enrollment Script for RHEL
+          
+          set -e
+          
+          EJBCA_URL="${1:-https://ejbca.local}"
+          CERT_PROFILE="${2:-SERVER}"
+          END_ENTITY_PROFILE="${3:-SERVER}"
+          COMMON_NAME="${4:-$(hostname -f)}"
+          
+          echo "Enrolling certificate for: $COMMON_NAME"
+          
+          # Generate private key
+          openssl genrsa -out /tmp/private.key 2048
+          
+          # Generate CSR
+          openssl req -new -key /tmp/private.key -out /tmp/request.csr \
+            -subj "/CN=$COMMON_NAME/O=PKI Lab/C=US"
+          
+          # Encode CSR in base64
+          CSR_B64=$(cat /tmp/request.csr | base64 -w 0)
+          
+          # Submit to EJBCA REST API
+          RESPONSE=$(curl -s -X POST "$EJBCA_URL/ejbca/ejbca-rest-api/v1/certificate/enroll" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"certificate_request\": \"$CSR_B64\",
+              \"certificate_profile_name\": \"$CERT_PROFILE\",
+              \"end_entity_profile_name\": \"$END_ENTITY_PROFILE\",
+              \"username\": \"$COMMON_NAME\",
+              \"password\": \"$(uuidgen)\"
+            }")
+          
+          # Extract and save certificate
+          echo "$RESPONSE" | jq -r '.certificate' | base64 -d > "{{ pki_base_dir }}/certs/$COMMON_NAME.crt"
+          mv /tmp/private.key "{{ pki_base_dir }}/certs/$COMMON_NAME.key"
+          chmod 600 "{{ pki_base_dir }}/certs/$COMMON_NAME.key"
+          
+          echo "Certificate enrolled successfully"
+          echo "Certificate: {{ pki_base_dir }}/certs/$COMMON_NAME.crt"
+          echo "Private Key: {{ pki_base_dir }}/certs/$COMMON_NAME.key"
+          
+          # Clean up
+          rm -f /tmp/request.csr
+        dest: "{{ pki_base_dir }}/scripts/enroll-certificate.sh"
+        mode: '0755'
+
+    - name: Create certificate validation script
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Certificate Validation Script
+          
+          CERT_FILE="${1:-}"
+          
+          if [ -z "$CERT_FILE" ]; then
+            echo "Usage: $0 <certificate-file>"
+            exit 1
+          fi
+          
+          if [ ! -f "$CERT_FILE" ]; then
+            echo "Certificate file not found: $CERT_FILE"
+            exit 1
+          fi
+          
+          echo "=== Certificate Information ==="
+          openssl x509 -in "$CERT_FILE" -text -noout
+          
+          echo -e "\n=== Certificate Validity ==="
+          openssl x509 -in "$CERT_FILE" -noout -dates
+          
+          echo -e "\n=== Certificate Subject ==="
+          openssl x509 -in "$CERT_FILE" -noout -subject
+          
+          echo -e "\n=== Certificate Issuer ==="
+          openssl x509 -in "$CERT_FILE" -noout -issuer
+          
+          echo -e "\n=== Certificate Serial Number ==="
+          openssl x509 -in "$CERT_FILE" -noout -serial
+          
+          echo -e "\n=== Certificate Fingerprint ==="
+          openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha256
+        dest: "{{ pki_base_dir }}/scripts/validate-certificate.sh"
+        mode: '0755'
+
+    - name: Configure SELinux for PKI operations
+      ansible.posix.selinux:
+        policy: targeted
+        state: permissive
+      when: ansible_selinux.status == "enabled"
+
+    - name: Set up systemd service for certificate monitoring
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=PKI Certificate Monitoring Service
+          After=network.target
+
+          [Service]
+          Type=oneshot
+          ExecStart={{ pki_base_dir }}/scripts/check-certificates.sh
+          User=root
+
+          [Install]
+          WantedBy=multi-user.target
+        dest: /etc/systemd/system/pki-cert-monitor.service
+        mode: '0644'
+
+    - name: Create certificate monitoring script
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Certificate Monitoring Script
+          
+          CERT_DIR="{{ pki_base_dir }}/certs"
+          ALERT_THRESHOLD=30  # Days before expiration
+          
+          echo "Checking certificates in: $CERT_DIR"
+          
+          for cert in $CERT_DIR/*.crt; do
+            if [ -f "$cert" ]; then
+              EXPIRY=$(openssl x509 -in "$cert" -noout -enddate | cut -d= -f2)
+              EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s)
+              CURRENT_EPOCH=$(date +%s)
+              DAYS_REMAINING=$(( ($EXPIRY_EPOCH - $CURRENT_EPOCH) / 86400 ))
+              
+              echo "Certificate: $(basename $cert)"
+              echo "  Expiry: $EXPIRY"
+              echo "  Days Remaining: $DAYS_REMAINING"
+              
+              if [ $DAYS_REMAINING -lt $ALERT_THRESHOLD ]; then
+                echo "  WARNING: Certificate expires in $DAYS_REMAINING days!"
+                logger -t pki-cert-monitor "Certificate $(basename $cert) expires in $DAYS_REMAINING days"
+              fi
+              echo ""
+            fi
+          done
+        dest: "{{ pki_base_dir }}/scripts/check-certificates.sh"
+        mode: '0755'
+
+    - name: Set up systemd timer for certificate monitoring
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          Description=Daily PKI Certificate Check Timer
+          Requires=pki-cert-monitor.service
+
+          [Timer]
+          OnCalendar=daily
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+        dest: /etc/systemd/system/pki-cert-monitor.timer
+        mode: '0644'
+
+    - name: Enable and start certificate monitoring timer
+      ansible.builtin.systemd:
+        name: pki-cert-monitor.timer
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Configure rsyslog for PKI logging
+      ansible.builtin.blockinfile:
+        path: /etc/rsyslog.d/pki.conf
+        create: yes
+        block: |
+          # PKI Application Logging
+          :programname, isequal, "ejbca" /var/log/pki/ejbca.log
+          :programname, isequal, "pki-cert-monitor" /var/log/pki/cert-monitor.log
+          & stop
+        mode: '0644'
+      notify: restart rsyslog
+
+    - name: Configure log rotation for PKI logs
+      ansible.builtin.copy:
+        content: |
+          /var/log/pki/*.log {
+              daily
+              rotate 30
+              compress
+              delaycompress
+              notifempty
+              create 0640 root root
+              sharedscripts
+              postrotate
+                  /usr/bin/systemctl reload rsyslog > /dev/null 2>&1 || true
+              endscript
+          }
+        dest: /etc/logrotate.d/pki
+        mode: '0644'
+
+    - name: Install node_exporter for Prometheus metrics
+      block:
+        - name: Create node_exporter user
+          ansible.builtin.user:
+            name: node_exporter
+            shell: /bin/false
+            system: yes
+            create_home: no
+
+        - name: Download node_exporter
+          ansible.builtin.get_url:
+            url: https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+            dest: /tmp/node_exporter.tar.gz
+
+        - name: Extract node_exporter
+          ansible.builtin.unarchive:
+            src: /tmp/node_exporter.tar.gz
+            dest: /tmp
+            remote_src: yes
+
+        - name: Copy node_exporter binary
+          ansible.builtin.copy:
+            src: /tmp/node_exporter-1.7.0.linux-amd64/node_exporter
+            dest: /usr/local/bin/node_exporter
+            mode: '0755'
+            remote_src: yes
+
+        - name: Create node_exporter systemd service
+          ansible.builtin.copy:
+            content: |
+              [Unit]
+              Description=Node Exporter
+              After=network.target
+
+              [Service]
+              User=node_exporter
+              Group=node_exporter
+              Type=simple
+              ExecStart=/usr/local/bin/node_exporter
+
+              [Install]
+              WantedBy=multi-user.target
+            dest: /etc/systemd/system/node_exporter.service
+
+        - name: Enable and start node_exporter
+          ansible.builtin.systemd:
+            name: node_exporter
+            enabled: yes
+            state: started
+            daemon_reload: yes
+
+    - name: Verify installations
+      ansible.builtin.command: "{{ item }}"
+      loop:
+        - java -version
+        - az --version
+        - kubectl version --client
+        - helm version
+        - terraform version
+        - podman --version
+      register: verification_result
+      ignore_errors: yes
+
+    - name: Display verification results
+      debug:
+        msg: "{{ item.stdout_lines }}"
+      loop: "{{ verification_result.results }}"
+      when: item.stdout_lines is defined
+
+  handlers:
+    - name: restart rsyslog
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: restarted
+

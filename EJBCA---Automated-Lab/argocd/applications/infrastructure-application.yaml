@@ -1,0 +1,70 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: infrastructure-stack
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: ingress-nginx
+            chart: ingress-nginx
+            repo: https://kubernetes.github.io/ingress-nginx
+            namespace: ingress-nginx
+            valuesFile: values.yaml
+          
+          - name: cert-manager
+            chart: cert-manager
+            repo: https://charts.jetstack.io
+            namespace: cert-manager
+            valuesFile: cert-manager-values.yaml
+          
+          - name: harbor
+            chart: harbor
+            repo: https://helm.goharbor.io
+            namespace: harbor
+            valuesFile: harbor-values.yaml
+          
+          - name: artifactory
+            chart: artifactory
+            repo: https://charts.jfrog.io
+            namespace: artifactory
+            valuesFile: jfrog-artifactory-values.yaml
+  
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: argocd
+    spec:
+      project: pki-platform
+      
+      source:
+        repoURL: '{{repo}}'
+        chart: '{{chart}}'
+        targetRevision: '*'
+        helm:
+          valueFiles:
+            - $values/kubernetes/{{name}}/{{valuesFile}}
+      
+      sources:
+        - repoURL: https://github.com/YOUR-ORG/EJBCA---Automated-Lab.git
+          targetRevision: HEAD
+          ref: values
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    name: observability
+    monitoring: enabled
+    linkerd.io/inject: enabled
+  annotations:
+    description: "Observability stack for PKI platform - Prometheus, Grafana, Loki, Tempo, OpenTelemetry"
+

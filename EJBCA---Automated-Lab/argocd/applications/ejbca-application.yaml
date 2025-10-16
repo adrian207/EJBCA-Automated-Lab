@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ejbca-ce
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: pki-platform
+  
+  source:
+    repoURL: https://github.com/YOUR-ORG/EJBCA---Automated-Lab.git
+    targetRevision: HEAD
+    path: helm/ejbca-ce
+    helm:
+      valueFiles:
+        - values.yaml
+      parameters:
+        - name: global.environment
+          value: dev
+        - name: externalDatabase.host
+          value: "postgresql.database.svc.cluster.local"
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ejbca
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  
+  revisionHistoryLimit: 10
+  
+  info:
+    - name: 'Documentation'
+      value: 'https://doc.primekey.com/ejbca'
+

@@ -1,0 +1,226 @@
+name: Kubernetes Deployment
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'kubernetes/**'
+      - 'helm/**'
+      - 'argocd/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  KUBECTL_VERSION: 'v1.28.0'
+  HELM_VERSION: 'v3.13.0'
+
+jobs:
+  validate-manifests:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+      
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+      
+      - name: Validate Kubernetes YAML
+        run: |
+          find kubernetes -name '*.yaml' -o -name '*.yml' | while read file; do
+            echo "Validating $file"
+            kubectl apply --dry-run=client -f "$file" || exit 1
+          done
+      
+      - name: Lint Helm charts
+        run: |
+          find helm -name 'Chart.yaml' -exec dirname {} \; | while read chart; do
+            echo "Linting $chart"
+            helm lint "$chart" || exit 1
+          done
+      
+      - name: Run Kubeval
+        uses: instrumenta/kubeval-action@master
+        with:
+          files: kubernetes/
+      
+      - name: Run Kubeconform
+        uses: docker://ghcr.io/yannh/kubeconform:latest
+        with:
+          args: -summary -output json kubernetes/
+      
+      - name: Scan Kubernetes manifests with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: 'kubernetes/'
+          format: 'sarif'
+          output: 'trivy-k8s-results.sarif'
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-k8s-results.sarif'
+      
+      - name: Run Checkov on Kubernetes manifests
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: kubernetes/
+          framework: kubernetes
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: true
+      
+      - name: Scan with Kubesec
+        run: |
+          wget https://github.com/controlplaneio/kubesec/releases/download/v2.13.0/kubesec_linux_amd64.tar.gz
+          tar -xzf kubesec_linux_amd64.tar.gz
+          find kubernetes -name '*.yaml' -o -name '*.yml' | while read file; do
+            echo "Scanning $file"
+            ./kubesec scan "$file"
+          done
+  
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: validate-manifests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: ${{ github.event.inputs.environment || 'dev' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+      
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: ${{ env.KUBECTL_VERSION }}
+      
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+      
+      - name: Add Helm repositories
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo add grafana https://grafana.github.io/helm-charts
+          helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo add harbor https://helm.goharbor.io
+          helm repo add jfrog https://charts.jfrog.io
+          helm repo add linkerd https://linkerd.github.io/linkerd2
+          helm repo add argo https://argoproj.github.io/argo-helm
+          helm repo update
+      
+      - name: Create namespaces
+        run: |
+          kubectl apply -f kubernetes/ejbca/namespace.yaml
+          kubectl apply -f kubernetes/observability/namespace.yaml
+          kubectl apply -f kubernetes/harbor/namespace.yaml
+          kubectl apply -f kubernetes/artifactory/namespace.yaml
+          kubectl apply -f kubernetes/ingress-nginx/namespace.yaml
+          kubectl apply -f kubernetes/linkerd/namespace.yaml
+      
+      - name: Deploy NGINX Ingress Controller
+        run: |
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            -f kubernetes/ingress-nginx/values.yaml \
+            -n ingress-nginx \
+            --wait \
+            --timeout 10m
+      
+      - name: Deploy Observability Stack
+        run: |
+          helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+            -f kubernetes/observability/kube-prometheus-stack-values.yaml \
+            -n observability \
+            --wait \
+            --timeout 15m
+          
+          helm upgrade --install loki grafana/loki-distributed \
+            -f kubernetes/observability/loki-values.yaml \
+            -n observability \
+            --wait \
+            --timeout 10m
+          
+          helm upgrade --install tempo grafana/tempo-distributed \
+            -f kubernetes/observability/tempo-values.yaml \
+            -n observability \
+            --wait \
+            --timeout 10m
+          
+          helm upgrade --install otel-collector open-telemetry/opentelemetry-collector \
+            -f kubernetes/observability/opentelemetry-collector-values.yaml \
+            -n observability \
+            --wait \
+            --timeout 10m
+      
+      - name: Deploy EJBCA CE
+        run: |
+          helm upgrade --install ejbca-ce ./helm/ejbca-ce \
+            -f helm/ejbca-ce/values.yaml \
+            -n ejbca \
+            --wait \
+            --timeout 15m
+      
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n ejbca
+          kubectl get pods -n observability
+          kubectl get svc -n ingress-nginx
+          kubectl get ingress --all-namespaces
+      
+      - name: Run deployment tests
+        run: |
+          # Wait for pods to be ready
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=ejbca-ce -n ejbca --timeout=300s
+          
+          # Check service endpoints
+          kubectl get endpoints -n ejbca
+          
+          # Test EJBCA health endpoint
+          EJBCA_URL=$(kubectl get ingress -n ejbca -o jsonpath='{.items[0].spec.rules[0].host}')
+          echo "Testing EJBCA at: $EJBCA_URL"
+      
+      - name: Notify deployment status
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Deployment to ${{ github.event.inputs.environment || 'dev' }} ${{ job.status }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+

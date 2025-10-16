@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ejbca-ce.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ejbca-ce.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.ejbca.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "ejbca-ce.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+      labels:
+        {{- include "ejbca-ce.selectorLabels" . | nindent 8 }}
+        version: {{ .Values.ejbca.image.tag | quote }}
+    spec:
+      {{- with .Values.ejbca.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ejbca-ce.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.ejbca.podSecurityContext | nindent 8 }}
+      {{- with .Values.ejbca.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ejbca.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ejbca.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: wait-for-database
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z -v -w30 {{ .Values.externalDatabase.host }} {{ .Values.externalDatabase.port }}
+              do
+                echo "Waiting for database connection..."
+                sleep 5
+              done
+      containers:
+        - name: ejbca
+          securityContext:
+            {{- toYaml .Values.ejbca.securityContext | nindent 12 }}
+          image: "{{ .Values.ejbca.image.registry }}/{{ .Values.ejbca.image.repository }}:{{ .Values.ejbca.image.tag }}"
+          imagePullPolicy: {{ .Values.ejbca.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: 8444
+              protocol: TCP
+          env:
+            {{- toYaml .Values.ejbca.env | nindent 12 }}
+          {{- with .Values.ejbca.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.ejbca.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.ejbca.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.ejbca.resources | nindent 12 }}
+          volumeMounts:
+            {{- toYaml .Values.ejbca.volumeMounts | nindent 12 }}
+      volumes:
+        {{- toYaml .Values.ejbca.volumes | nindent 8 }}
+

@@ -1,0 +1,256 @@
+---
+# EJBCA CA Hierarchy Configuration
+# This defines the complete CA structure for the PKI platform
+
+ca_hierarchy:
+  root_ca:
+    name: "Root CA"
+    subject_dn: "CN=PKI Platform Root CA,O=EJBCA Lab,C=US"
+    validity: "7300"  # 20 years
+    key_type: "RSA"
+    key_size: 4096
+    signature_algorithm: "SHA384WithRSA"
+    crl_period: "31536000000"  # 1 year in milliseconds
+    crl_issue_interval: "86400000"  # 1 day in milliseconds
+    description: "Offline Root Certificate Authority - Highest trust anchor"
+    policies:
+      - policy_id: "2.16.840.1.114028.10.1.2"
+        cps_uri: "https://pki.local/cps"
+    key_storage: "azure_key_vault"
+    backup_required: true
+    
+  subordinate_cas:
+    - name: "Issuing CA - TLS"
+      subject_dn: "CN=PKI Platform Issuing CA TLS,O=EJBCA Lab,C=US"
+      parent: "Root CA"
+      validity: "3650"  # 10 years
+      key_type: "RSA"
+      key_size: 4096
+      signature_algorithm: "SHA256WithRSA"
+      crl_period: "86400000"  # 1 day
+      crl_issue_interval: "3600000"  # 1 hour
+      description: "Issues TLS/SSL certificates for web servers and services"
+      certificate_profiles:
+        - "SERVER_CERTIFICATE"
+        - "CLIENT_CERTIFICATE"
+      ocsp_enabled: true
+      key_storage: "azure_key_vault"
+    
+    - name: "Issuing CA - Code Signing"
+      subject_dn: "CN=PKI Platform Issuing CA Code Signing,O=EJBCA Lab,C=US"
+      parent: "Root CA"
+      validity: "3650"  # 10 years
+      key_type: "RSA"
+      key_size: 4096
+      signature_algorithm: "SHA384WithRSA"
+      crl_period: "86400000"  # 1 day
+      crl_issue_interval: "3600000"  # 1 hour
+      description: "Issues code signing certificates for software publishers"
+      certificate_profiles:
+        - "CODE_SIGNING"
+        - "DOCUMENT_SIGNING"
+        - "CONTAINER_SIGNING"
+      ocsp_enabled: true
+      key_storage: "azure_key_vault"
+      timestamping_enabled: true
+    
+    - name: "Issuing CA - Device"
+      subject_dn: "CN=PKI Platform Issuing CA Device,O=EJBCA Lab,C=US"
+      parent: "Root CA"
+      validity: "3650"  # 10 years
+      key_type: "ECDSA"
+      curve: "P-384"
+      signature_algorithm: "SHA384withECDSA"
+      crl_period: "86400000"  # 1 day
+      crl_issue_interval: "3600000"  # 1 hour
+      description: "Issues certificates for IoT devices and network equipment"
+      certificate_profiles:
+        - "IOT_DEVICE"
+        - "IPSEC_VPN"
+      ocsp_enabled: true
+      key_storage: "azure_key_vault"
+      scep_enabled: true
+      est_enabled: true
+
+# End Entity Profiles
+end_entity_profiles:
+  - name: "WEB_SERVER"
+    description: "Profile for web servers (Apache, NGINX, IIS)"
+    certificate_profile: "SERVER_CERTIFICATE"
+    ca: "Issuing CA - TLS"
+    subject_dn_attributes:
+      required:
+        - CN
+        - O
+      optional:
+        - OU
+        - L
+        - ST
+        - C
+    subject_alt_names:
+      - dNSName
+      - iPAddress
+    default_validity: "730d"
+    max_validity: "825d"
+    
+  - name: "USER_AUTHENTICATION"
+    description: "Profile for user authentication certificates"
+    certificate_profile: "CLIENT_CERTIFICATE"
+    ca: "Issuing CA - TLS"
+    subject_dn_attributes:
+      required:
+        - CN
+        - E
+        - O
+      optional:
+        - OU
+    subject_alt_names:
+      - rfc822Name
+      - uniformResourceIdentifier
+    default_validity: "365d"
+    max_validity: "730d"
+  
+  - name: "SOFTWARE_PUBLISHER"
+    description: "Profile for software code signing"
+    certificate_profile: "CODE_SIGNING"
+    ca: "Issuing CA - Code Signing"
+    subject_dn_attributes:
+      required:
+        - CN
+        - O
+        - C
+    default_validity: "1095d"
+    max_validity: "1095d"
+    approval_required: true
+    
+  - name: "CONTAINER_REGISTRY"
+    description: "Profile for container image signing"
+    certificate_profile: "CONTAINER_SIGNING"
+    ca: "Issuing CA - Code Signing"
+    subject_dn_attributes:
+      required:
+        - CN
+        - O
+    subject_alt_names:
+      - uniformResourceIdentifier
+    default_validity: "365d"
+    max_validity: "730d"
+  
+  - name: "IOT_FLEET"
+    description: "Profile for IoT device certificates"
+    certificate_profile: "IOT_DEVICE"
+    ca: "Issuing CA - Device"
+    subject_dn_attributes:
+      required:
+        - CN
+        - O
+    subject_alt_names:
+      - uniformResourceIdentifier
+    default_validity: "1095d"
+    max_validity: "1825d"
+    scep_enabled: true
+    est_enabled: true
+
+# Protocol Configuration
+protocols:
+  acme:
+    enabled: true
+    port: 8080
+    path: "/ejbca/.well-known/acme"
+    allowed_profiles:
+      - "WEB_SERVER"
+    require_external_account_binding: false
+    wildcard_enabled: true
+    
+  scep:
+    enabled: true
+    port: 8080
+    path: "/ejbca/publicweb/apply/scep"
+    allowed_profiles:
+      - "IOT_FLEET"
+    client_certificate_renewal: true
+    
+  cmp:
+    enabled: true
+    port: 8442
+    path: "/ejbca/publicweb/cmp"
+    allowed_profiles:
+      - "WEB_SERVER"
+      - "USER_AUTHENTICATION"
+    authentication_module: "HMAC"
+    
+  est:
+    enabled: true
+    port: 8443
+    path: "/ejbca/.well-known/est"
+    allowed_profiles:
+      - "IOT_FLEET"
+    client_certificate_required: true
+    
+  rest_api:
+    enabled: true
+    port: 8080
+    path: "/ejbca/ejbca-rest-api"
+    authentication: "certificate"
+    rate_limiting: true
+  
+  web_services:
+    enabled: true
+    port: 8080
+    path: "/ejbca/ejbcaws"
+    authentication: "certificate"
+
+# OCSP Configuration
+ocsp:
+  enabled: true
+  port: 8080
+  path: "/ejbca/publicweb/status/ocsp"
+  signing_algorithm: "SHA256WithRSA"
+  response_validity: 600  # 10 minutes in seconds
+  responder_certificate_validity: "365d"
+  default_responder: "Issuing CA - TLS"
+  
+# CRL Configuration
+crl:
+  enabled: true
+  distribution_points:
+    - "http://crl.pki.local/ejbca/publicweb/webdist/certdist?cmd=crl&issuer="
+  delta_crl_enabled: true
+  
+# Certificate Transparency
+certificate_transparency:
+  enabled: true
+  log_servers:
+    - "https://ct.googleapis.com/logs/argon2024/"
+  sct_required: true
+  
+# Publishers
+publishers:
+  - name: "Azure Storage Publisher"
+    type: "custom"
+    destination: "azure_blob_storage"
+    container: "ejbca-certificates"
+    publish_certs: true
+    publish_crls: true
+    
+  - name: "LDAP Publisher"
+    type: "ldap"
+    hostname: "ldap.local"
+    port: 636
+    use_ssl: true
+    publish_certs: true
+    publish_crls: true
+
+# Approval Profiles
+approval_profiles:
+  - name: "Code Signing Approval"
+    description: "Requires two approvals for code signing certificates"
+    steps:
+      - partition: 1
+        approvals_required: 2
+        allowed_groups:
+          - "Security Team"
+          - "PKI Admins"
+    applicable_profiles:
+      - "SOFTWARE_PUBLISHER"
+

@@ -1,0 +1,162 @@
+## Linkerd2 Control Plane Configuration
+## Install with: linkerd install --values linkerd-values.yaml | kubectl apply -f -
+## Or use: helm install linkerd-control-plane linkerd/linkerd-control-plane -f linkerd-values.yaml -n linkerd
+
+## Identity Configuration (mTLS certificates)
+identity:
+  issuer:
+    scheme: kubernetes.io/tls
+    
+  ## Certificate validity
+  issuerCertificateValidity: 8760h  # 1 year
+  certificateValidity: 24h
+
+## Control Plane Configuration
+controlPlaneTracing: true
+controlPlaneTracingNamespace: linkerd-jaeger
+
+## High Availability
+enableH3Upgrade: true
+
+## Proxy Configuration
+proxy:
+  ## Resource limits
+  resources:
+    cpu:
+      limit: "1"
+      request: "100m"
+    memory:
+      limit: 250Mi
+      request: 20Mi
+  
+  ## Proxy injection
+  image:
+    name: cr.l5d.io/linkerd/proxy
+    version: stable-2.14.10
+  
+  ## Logging
+  logLevel: warn,linkerd=info
+  logFormat: plain
+  
+  ## Ports
+  ports:
+    admin: 4191
+    control: 4190
+    inbound: 4143
+    outbound: 4140
+  
+  ## Trace Configuration
+  trace:
+    collectorSvcAddr: otel-collector.observability:4317
+    collectorSvcAccount: otel-collector
+  
+  ## Wait before starting
+  waitBeforeExitSeconds: 0
+  
+  ## Enable external profiles
+  enableExternalProfiles: false
+  
+  ## UID
+  uid: 2102
+
+## Proxy Init Configuration
+proxyInit:
+  ## Image
+  image:
+    name: cr.l5d.io/linkerd/proxy-init
+    version: v2.2.4
+  
+  ## Resources
+  resources:
+    cpu:
+      limit: "100m"
+      request: "100m"
+    memory:
+      limit: "20Mi"
+      request: "20Mi"
+  
+  ## Close wait timeout
+  closeWaitTimeoutSecs: 0
+  
+  ## iptables mode
+  iptablesMode: legacy
+
+## Destination Controller
+destinationController:
+  replicas: 3
+  resources:
+    cpu:
+      limit: "1"
+      request: "100m"
+    memory:
+      limit: 250Mi
+      request: 50Mi
+
+## Identity Controller
+identityController:
+  replicas: 3
+  resources:
+    cpu:
+      limit: "1"
+      request: "100m"
+    memory:
+      limit: 250Mi
+      request: 10Mi
+
+## Proxy Injector
+proxyInjector:
+  replicas: 3
+  resources:
+    cpu:
+      limit: "1"
+      request: "100m"
+    memory:
+      limit: 250Mi
+      request: 50Mi
+
+## Public API
+publicAPI:
+  replicas: 3
+  resources:
+    cpu:
+      limit: "1"
+      request: "100m"
+    memory:
+      limit: 250Mi
+      request: 50Mi
+
+## Heartbeat Configuration
+heartbeatSchedule: "0 0 * * *"
+
+## Pod Annotations
+podAnnotations: {}
+
+## Pod Labels
+podLabels:
+  linkerd.io/control-plane-component: controller
+
+## Node Selector
+nodeSelector:
+  kubernetes.io/os: linux
+
+## Tolerations
+tolerations: []
+
+## RBAC
+enablePodSecurityPolicy: false
+
+## Disable Heartbeat
+disableHeartBeat: false
+
+## Omit Webhook Side Effects
+omitWebhookSideEffects: false
+
+## Webhook Failure Policy
+webhookFailurePolicy: Ignore
+
+## Control Plane Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 2103
+  fsGroup: 2103
+

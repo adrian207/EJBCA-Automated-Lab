@@ -1,0 +1,402 @@
+## Prometheus Stack Configuration with complete observability
+## Install with: helm install prometheus prometheus-community/kube-prometheus-stack -f kube-prometheus-stack-values.yaml -n observability
+
+fullnameOverride: prometheus
+
+## Prometheus Configuration
+prometheus:
+  prometheusSpec:
+    replicas: 2
+    retention: 30d
+    retentionSize: "50GB"
+    
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 4Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+    
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: managed-premium
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 100Gi
+    
+    ## Service Monitor Selector
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    
+    ## Pod Monitor Selector
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    
+    ## Additional Scrape Configs
+    additionalScrapeConfigs:
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+      
+      - job_name: 'ejbca-metrics'
+        static_configs:
+          - targets: ['ejbca-ce.ejbca:8080']
+        metrics_path: '/metrics'
+      
+      - job_name: 'harbor-metrics'
+        static_configs:
+          - targets: ['harbor-core.harbor:8001']
+      
+      - job_name: 'linkerd-proxy'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels:
+              - __meta_kubernetes_pod_container_name
+            action: keep
+            regex: ^linkerd-proxy$
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+    
+    ## Rule Selector
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+
+  ## Ingress for Prometheus UI
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: prometheus-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+    hosts:
+      - prometheus.local
+    tls:
+      - secretName: prometheus-tls
+        hosts:
+          - prometheus.local
+
+## Grafana Configuration
+grafana:
+  enabled: true
+  replicas: 2
+  
+  # SECURED: Admin password from external secret
+  # Create secret first: kubectl create secret generic grafana-admin --from-literal=admin-password=$(openssl rand -base64 32) -n observability
+  admin:
+    existingSecret: "grafana-admin"
+    userKey: admin-user
+    passwordKey: admin-password
+  
+  persistence:
+    enabled: true
+    storageClassName: managed-premium
+    size: 10Gi
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  ## Grafana Ingress
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - grafana.local
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.local
+  
+  ## Data Sources
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki-gateway.observability:80
+      jsonData:
+        maxLines: 1000
+    
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability:3100
+      jsonData:
+        tracesToLogs:
+          datasourceUid: 'loki'
+        serviceMap:
+          datasourceUid: 'prometheus'
+        nodeGraph:
+          enabled: true
+    
+    - name: Azure Monitor
+      type: grafana-azure-monitor-datasource
+      access: proxy
+      jsonData:
+        cloudName: azuremonitor
+        subscriptionId: ${AZURE_SUBSCRIPTION_ID}
+  
+  ## Dashboard Providers
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+        
+        - name: 'ejbca'
+          orgId: 1
+          folder: 'EJBCA PKI'
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/ejbca
+  
+  ## Pre-configured Dashboards
+  dashboards:
+    default:
+      kubernetes-cluster:
+        gnetId: 7249
+        revision: 1
+        datasource: Prometheus
+      
+      kubernetes-deployment:
+        gnetId: 8588
+        revision: 1
+        datasource: Prometheus
+      
+      node-exporter:
+        gnetId: 1860
+        revision: 31
+        datasource: Prometheus
+      
+      linkerd-top-line:
+        gnetId: 15474
+        revision: 4
+        datasource: Prometheus
+      
+      postgresql:
+        gnetId: 9628
+        revision: 7
+        datasource: Prometheus
+  
+  ## Grafana Configuration
+  grafana.ini:
+    server:
+      domain: grafana.local
+      root_url: https://grafana.local
+    
+    auth:
+      disable_login_form: false
+    
+    auth.anonymous:
+      enabled: false
+    
+    security:
+      admin_user: admin
+      admin_password: ${GF_SECURITY_ADMIN_PASSWORD}
+    
+    analytics:
+      reporting_enabled: false
+      check_for_updates: false
+    
+    log:
+      mode: console
+      level: info
+
+## Alertmanager Configuration
+alertmanager:
+  enabled: true
+  
+  alertmanagerSpec:
+    replicas: 2
+    retention: 120h
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+    
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: managed-premium
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+  
+  config:
+    global:
+      resolve_timeout: 5m
+    
+    route:
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      receiver: 'null'
+      routes:
+        - match:
+            alertname: Watchdog
+          receiver: 'null'
+        
+        - match:
+            severity: critical
+          receiver: 'critical'
+          continue: true
+        
+        - match:
+            severity: warning
+          receiver: 'warning'
+    
+    receivers:
+      - name: 'null'
+      
+      - name: 'critical'
+        # Add your notification channels here
+        # email_configs, slack_configs, pagerduty_configs, etc.
+      
+      - name: 'warning'
+        # Add your notification channels here
+  
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: alertmanager-basic-auth
+    hosts:
+      - alertmanager.local
+    tls:
+      - secretName: alertmanager-tls
+        hosts:
+          - alertmanager.local
+
+## Node Exporter
+nodeExporter:
+  enabled: true
+
+## Kube State Metrics
+kubeStateMetrics:
+  enabled: true
+
+## Prometheus Operator
+prometheusOperator:
+  enabled: true
+  
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+## Default Rules
+defaultRules:
+  create: true
+  rules:
+    alertmanager: true
+    etcd: true
+    configReloaders: true
+    general: true
+    k8s: true
+    kubeApiserverAvailability: true
+    kubeApiserverBurnrate: true
+    kubeApiserverHistogram: true
+    kubeApiserverSlos: true
+    kubeControllerManager: true
+    kubelet: true
+    kubeProxy: true
+    kubePrometheusGeneral: true
+    kubePrometheusNodeRecording: true
+    kubernetesApps: true
+    kubernetesResources: true
+    kubernetesStorage: true
+    kubernetesSystem: true
+    kubeSchedulerAlerting: true
+    kubeSchedulerRecording: true
+    kubeStateMetrics: true
+    network: true
+    node: true
+    nodeExporterAlerting: true
+    nodeExporterRecording: true
+    prometheus: true
+    prometheusOperator: true
+
+## Additional Custom Alerts
+additionalPrometheusRulesMap:
+  ejbca-alerts:
+    groups:
+      - name: ejbca
+        rules:
+          - alert: EJBCADown
+            expr: up{job="ejbca-metrics"} == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "EJBCA is down"
+              description: "EJBCA has been down for more than 5 minutes."
+          
+          - alert: EJBCAHighMemoryUsage
+            expr: container_memory_usage_bytes{pod=~"ejbca.*"} / container_spec_memory_limit_bytes{pod=~"ejbca.*"} > 0.9
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "EJBCA high memory usage"
+              description: "EJBCA memory usage is above 90%"
+          
+          - alert: CertificateExpiringSoon
+            expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 30
+            for: 1h
+            labels:
+              severity: warning
+            annotations:
+              summary: "Certificate expiring soon"
+              description: "Certificate will expire in less than 30 days"
+

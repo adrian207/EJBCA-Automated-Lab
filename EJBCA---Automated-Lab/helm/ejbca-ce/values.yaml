@@ -1,0 +1,358 @@
+## EJBCA CE Helm Chart Values
+## This is a comprehensive configuration for production-grade PKI deployment
+
+## Global Configuration
+global:
+  environment: dev
+  domain: ejbca.local
+
+## EJBCA Configuration
+ejbca:
+  image:
+    registry: docker.io
+    repository: keyfactor/ejbca-ce
+    tag: "8.3.0.1"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  replicaCount: 3
+
+  ## Pod Security Context
+  podSecurityContext:
+    fsGroup: 1000
+    runAsNonRoot: true
+    runAsUser: 1000
+
+  ## Container Security Context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+
+  ## Resource Limits
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+
+  ## Liveness and Readiness Probes
+  livenessProbe:
+    httpGet:
+      path: /ejbca/publicweb/healthcheck/ejbcahealth
+      port: 8080
+    initialDelaySeconds: 180
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /ejbca/publicweb/healthcheck/ejbcahealth
+      port: 8080
+    initialDelaySeconds: 120
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  ## Environment Variables
+  env:
+    - name: TZ
+      value: "UTC"
+    - name: DATABASE_JDBC_URL
+      value: "jdbc:postgresql://postgresql:5432/ejbca"
+    - name: DATABASE_USER
+      value: "ejbca"
+    - name: LOG_LEVEL_APP
+      value: "INFO"
+    - name: LOG_LEVEL_SERVER
+      value: "INFO"
+    - name: PROXY_HTTP_BIND
+      value: "0.0.0.0"
+
+  ## Environment Variables from Secrets
+  envFrom:
+    - secretRef:
+        name: ejbca-secrets
+    - configMapRef:
+        name: ejbca-config
+
+  ## Affinity Rules - Schedule on PKI nodes
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: workload
+                operator: In
+                values:
+                  - ejbca
+                  - pki
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - ejbca-ce
+            topologyKey: kubernetes.io/hostname
+
+  ## Tolerations
+  tolerations:
+    - key: "workload"
+      operator: "Equal"
+      value: "pki"
+      effect: "NoSchedule"
+
+  ## Node Selector
+  nodeSelector: {}
+
+  ## Volumes
+  volumes:
+    - name: ejbca-data
+      persistentVolumeClaim:
+        claimName: ejbca-data-pvc
+    - name: ejbca-config
+      configMap:
+        name: ejbca-config
+    - name: ca-keys
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes:
+          secretProviderClass: "azure-keyvault-ejbca"
+
+  volumeMounts:
+    - name: ejbca-data
+      mountPath: /mnt/persistent
+    - name: ejbca-config
+      mountPath: /opt/ejbca/conf
+    - name: ca-keys
+      mountPath: /mnt/secrets
+
+## Service Configuration
+service:
+  type: ClusterIP
+  ports:
+    http:
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    https:
+      port: 8443
+      targetPort: 8443
+      protocol: TCP
+    admin:
+      port: 8444
+      targetPort: 8444
+      protocol: TCP
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+## Ingress Configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  hosts:
+    - host: ejbca.local
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: pki.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ejbca-tls
+      hosts:
+        - ejbca.local
+        - pki.local
+
+## Persistence Configuration
+persistence:
+  enabled: true
+  storageClass: "managed-premium"
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  annotations: {}
+
+## PostgreSQL Configuration
+postgresql:
+  enabled: false  # Use external Azure PostgreSQL
+  auth:
+    username: ejbca
+    database: ejbca
+    existingSecret: postgresql-secret
+
+## External Database Configuration
+externalDatabase:
+  enabled: true
+  host: ""  # Set via values override
+  port: 5432
+  database: ejbca
+  username: ejbca
+  existingSecret: ejbca-db-secret
+  existingSecretPasswordKey: password
+
+## EJBCA Specific Configuration
+ejbcaConfig:
+  ## CA Configuration
+  ca:
+    name: "ManagementCA"
+    dn: "CN=Management CA,O=EJBCA Platform,C=US"
+    validity: 3652  # 10 years
+    keyType: RSA
+    keySize: 4096
+    signatureAlgorithm: SHA256WithRSA
+
+  ## Certificate Profiles
+  certificateProfiles:
+    - name: SERVER
+      validity: 825  # ~2 years
+      keyUsage:
+        - digitalSignature
+        - keyEncipherment
+      extendedKeyUsage:
+        - serverAuth
+    - name: CLIENT
+      validity: 365  # 1 year
+      keyUsage:
+        - digitalSignature
+      extendedKeyUsage:
+        - clientAuth
+    - name: CODE_SIGNING
+      validity: 730  # 2 years
+      keyUsage:
+        - digitalSignature
+      extendedKeyUsage:
+        - codeSigning
+
+  ## Protocol Enablement
+  protocols:
+    acme:
+      enabled: true
+      port: 8080
+    scep:
+      enabled: true
+      port: 8080
+    cmp:
+      enabled: true
+      port: 8442
+    est:
+      enabled: true
+      port: 8443
+    rest:
+      enabled: true
+      port: 8080
+    webservice:
+      enabled: true
+      port: 8080
+
+  ## OCSP Configuration
+  ocsp:
+    enabled: true
+    signingAlgorithm: SHA256WithRSA
+    responseValidity: 600  # 10 minutes
+
+  ## CRL Configuration
+  crl:
+    enabled: true
+    period: 3600000  # 1 hour in milliseconds
+    issueInterval: 300000  # 5 minutes
+
+## Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+## Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+## Horizontal Pod Autoscaler
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+## Network Policy
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app: nginx-ingress
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8443
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: database
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+
+## Azure Key Vault Integration
+azureKeyVault:
+  enabled: true
+  usePodIdentity: true
+  useVMManagedIdentity: false
+  userAssignedIdentityID: ""
+  keyvaultName: ""
+  objects: |
+    array:
+      - |
+        objectName: ejbca-root-ca-key
+        objectType: key
+        objectAlias: root-ca-key
+      - |
+        objectName: ejbca-sub-ca-key
+        objectType: key
+        objectAlias: sub-ca-key
+      - |
+        objectName: ejbca-db-password
+        objectType: secret
+        objectAlias: db-password
+  tenantId: ""
+

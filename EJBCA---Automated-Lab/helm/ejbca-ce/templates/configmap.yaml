@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ejbca-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ejbca-ce.labels" . | nindent 4 }}
+data:
+  # EJBCA Configuration
+  DATABASE_JDBC_URL: {{ include "ejbca-ce.databaseUrl" . | quote }}
+  DATABASE_USER: {{ .Values.externalDatabase.username | quote }}
+  TZ: "UTC"
+  LOG_LEVEL_APP: "INFO"
+  LOG_LEVEL_SERVER: "INFO"
+  
+  # CA Configuration
+  CA_NAME: {{ .Values.ejbcaConfig.ca.name | quote }}
+  CA_DN: {{ .Values.ejbcaConfig.ca.dn | quote }}
+  CA_VALIDITY: {{ .Values.ejbcaConfig.ca.validity | quote }}
+  CA_KEY_TYPE: {{ .Values.ejbcaConfig.ca.keyType | quote }}
+  CA_KEY_SIZE: {{ .Values.ejbcaConfig.ca.keySize | quote }}
+  
+  # Protocol Enablement
+  ACME_ENABLED: {{ .Values.ejbcaConfig.protocols.acme.enabled | quote }}
+  SCEP_ENABLED: {{ .Values.ejbcaConfig.protocols.scep.enabled | quote }}
+  CMP_ENABLED: {{ .Values.ejbcaConfig.protocols.cmp.enabled | quote }}
+  EST_ENABLED: {{ .Values.ejbcaConfig.protocols.est.enabled | quote }}
+  REST_ENABLED: {{ .Values.ejbcaConfig.protocols.rest.enabled | quote }}
+  
+  # OCSP Configuration
+  OCSP_ENABLED: {{ .Values.ejbcaConfig.ocsp.enabled | quote }}
+  OCSP_SIGNING_ALGORITHM: {{ .Values.ejbcaConfig.ocsp.signingAlgorithm | quote }}
+  
+  # Application Properties
+  ejbca.properties: |
+    # EJBCA Application Properties
+    ejbca.productionmode=true
+    ejbca.passwordlogrounds=1
+    web.availablelanguages=en
+    web.contentencoding=UTF-8
+    
+    # Database Configuration
+    database.name=postgresql
+    database.driver=org.postgresql.Driver
+    
+    # Web Configuration
+    httpsserver.hostname={{ (index .Values.ingress.hosts 0).host }}
+    httpsserver.port=443
+    httpserver.pubhttp=8080
+    httpserver.pubhttps=8443
+    
+    # Certificate Profiles
+    {{- range .Values.ejbcaConfig.certificateProfiles }}
+    certprofile.{{ .name }}.validity={{ .validity }}
+    {{- end }}
+

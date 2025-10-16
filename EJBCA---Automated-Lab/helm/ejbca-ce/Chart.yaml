@@ -1,0 +1,26 @@
+apiVersion: v2
+name: ejbca-ce
+description: Keyfactor EJBCA Community Edition - Enterprise PKI Certificate Authority
+type: application
+version: 1.0.0
+appVersion: "8.3.0"
+keywords:
+  - pki
+  - certificate-authority
+  - ejbca
+  - keyfactor
+  - tls
+  - ssl
+home: https://www.ejbca.org/
+sources:
+  - https://github.com/Keyfactor/ejbca-ce
+maintainers:
+  - name: PKI Platform Team
+    email: pki-admin@example.com
+icon: https://www.ejbca.org/images/ejbca-logo.svg
+dependencies:
+  - name: postgresql
+    version: "12.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+
