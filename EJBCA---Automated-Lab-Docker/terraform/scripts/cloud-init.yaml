@@ -1,0 +1,192 @@
+#cloud-config
+# ==============================================================================
+# Cloud-Init Configuration for EJBCA Docker Host
+# ==============================================================================
+# Author: Adrian Johnson <adrian207@gmail.com>
+# Installs Docker, Azure CLI, mounts Azure Files, deploys EJBCA
+# ==============================================================================
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - docker.io
+  - docker-compose
+  - git
+  - curl
+  - wget
+  - vim
+  - jq
+  - unzip
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - cifs-utils
+
+write_files:
+  - path: /opt/ejbca-platform/mount-azure-files.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Mount Azure Files for persistent storage
+      
+      STORAGE_ACCOUNT="${storage_account_name}"
+      STORAGE_KEY="${storage_account_key}"
+      MOUNT_POINT="/mnt/azure-files"
+      
+      mkdir -p $$MOUNT_POINT
+      
+      # Mount Azure Files
+      mount -t cifs //$$STORAGE_ACCOUNT.file.core.windows.net/ejbca-data $$MOUNT_POINT \
+        -o vers=3.0,username=$$STORAGE_ACCOUNT,password=$$STORAGE_KEY,dir_mode=0777,file_mode=0777,serverino
+      
+      # Add to fstab for persistence
+      if ! grep -q "ejbca-data" /etc/fstab; then
+        echo "//$$STORAGE_ACCOUNT.file.core.windows.net/ejbca-data $$MOUNT_POINT cifs vers=3.0,username=$$STORAGE_ACCOUNT,password=$$STORAGE_KEY,dir_mode=0777,file_mode=0777,serverino,_netdev 0 0" >> /etc/fstab
+      fi
+      
+      echo "Azure Files mounted successfully at $$MOUNT_POINT"
+
+  - path: /opt/ejbca-platform/fetch-secrets.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Fetch secrets from Azure Key Vault using managed identity
+      
+      KEYVAULT_NAME="${keyvault_name}"
+      
+      # Login using managed identity
+      az login --identity
+      
+      # Fetch secrets and create .env file
+      cat > /opt/ejbca-platform/.env << EOF
+      ENVIRONMENT=${environment}
+      POSTGRES_HOST=${postgres_host}
+      POSTGRES_DB=ejbca
+      POSTGRES_USER=ejbcaadmin
+      POSTGRES_PASSWORD=$(az keyvault secret show --vault-name $$KEYVAULT_NAME --name postgres-password --query value -o tsv)
+      
+      AZURE_KEYVAULT_NAME=$$KEYVAULT_NAME
+      AZURE_TENANT_ID=$(az account show --query tenantId -o tsv)
+      MANAGED_IDENTITY_CLIENT_ID=$(curl -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net" | jq -r '.client_id')
+      
+      APPINSIGHTS_CONNECTION_STRING=$(az keyvault secret show --vault-name $$KEYVAULT_NAME --name appinsights-connection-string --query value -o tsv)
+      AZURE_MONITOR_PROMETHEUS_ENDPOINT=$(az keyvault secret show --vault-name $$KEYVAULT_NAME --name prometheus-endpoint --query value -o tsv)
+      AZURE_GRAFANA_ENDPOINT=$(az keyvault secret show --vault-name $$KEYVAULT_NAME --name grafana-endpoint --query value -o tsv)
+      
+      AZURE_STORAGE_ACCOUNT=${storage_account_name}
+      AZURE_STORAGE_KEY=${storage_account_key}
+      AZURE_FILES_MOUNT_PATH=/mnt/azure-files
+      
+      EJBCA_CLI_PASSWORD=$(az keyvault secret show --vault-name $$KEYVAULT_NAME --name ejbca-cli-password --query value -o tsv)
+      
+      ACR_REGISTRY=${acr_login_server}
+      
+      LOG_LEVEL=INFO
+      EOF
+      
+      chmod 600 /opt/ejbca-platform/.env
+      echo "Secrets fetched and .env file created"
+
+  - path: /opt/ejbca-platform/deploy-ejbca.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Deploy EJBCA using Docker Compose
+      
+      cd /opt/ejbca-platform
+      
+      # Login to ACR using managed identity
+      az acr login --name ${acr_login_server} --identity
+      
+      # Deploy stack
+      docker-compose -f docker/docker-compose.hybrid.yml up -d
+      
+      echo "EJBCA deployed successfully"
+      
+      # Show status
+      docker-compose -f docker/docker-compose.hybrid.yml ps
+
+  - path: /etc/systemd/system/ejbca.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=EJBCA PKI Platform
+      Requires=docker.service
+      After=docker.service
+      
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/ejbca-platform
+      ExecStart=/usr/bin/docker-compose -f docker/docker-compose.hybrid.yml up -d
+      ExecStop=/usr/bin/docker-compose -f docker/docker-compose.hybrid.yml down
+      
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Install Azure CLI
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  
+  # Install Docker Compose v2
+  - mkdir -p /usr/local/lib/docker/cli-plugins
+  - curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+  - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+  
+  # Start Docker
+  - systemctl enable docker
+  - systemctl start docker
+  
+  # Add admin user to docker group
+  - usermod -aG docker ${admin_username}
+  
+  # Create project directory
+  - mkdir -p /opt/ejbca-platform
+  - cd /opt/ejbca-platform
+  
+  # Clone repository (or copy files via custom data)
+  - git clone https://github.com/adrian207/EJBCA---Automated-Lab.git .
+  - git checkout docker
+  
+  # Mount Azure Files
+  - /opt/ejbca-platform/mount-azure-files.sh
+  
+  # Fetch secrets from Key Vault
+  - sleep 30  # Wait for managed identity to propagate
+  - /opt/ejbca-platform/fetch-secrets.sh
+  
+  # Deploy EJBCA
+  - /opt/ejbca-platform/deploy-ejbca.sh
+  
+  # Enable EJBCA service
+  - systemctl enable ejbca.service
+  - systemctl start ejbca.service
+  
+  # Install monitoring agent
+  - wget https://aka.ms/azuremonitoragent -O /tmp/install-ama.sh
+  - bash /tmp/install-ama.sh
+  
+  # System tuning for Docker
+  - echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+  - sysctl -p
+  
+  # Set up log rotation
+  - |
+    cat > /etc/docker/daemon.json << 'EOF'
+    {
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "100m",
+        "max-file": "5"
+      }
+    }
+    EOF
+  - systemctl restart docker
+  
+  # Final message
+  - echo "EJBCA PKI Platform deployment complete!" > /var/log/cloud-init-complete.log
+  - echo "Access EJBCA at https://$(curl -s http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-02-01 -H Metadata:true):8443/ejbca" >> /var/log/cloud-init-complete.log
+
+final_message: "EJBCA PKI Platform is ready! Check /var/log/cloud-init-complete.log for access details."
+
