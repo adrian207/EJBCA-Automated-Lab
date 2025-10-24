@@ -1,70 +1,218 @@
-# Terraform
-.terraform/
-*.tfstate
-*.tfstate.*
-*.tfvars
-.terraform.lock.hcl
-tfplan
-crash.log
-crash.*.log
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Ansible
-*.retry
-*.log
-ansible.cfg.local
-
-# Kubernetes
-*.kubeconfig
-kubeconfig
-
-# Secrets
-*.pem
-*.key
-*.crt
-*.p12
-*.jks
-*.keystore
-*.truststore
-secrets/
-*.secret
-.env
-.env.local
-
-# IDE
+# IDE files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-.DS_Store
 
-# Helm
-charts/*/charts/
-*.tgz
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
 
-# Azure
-.azure/
+# Kubernetes
+*.kubeconfig
+kubeconfig*
+
+# Docker
+.dockerignore
 
 # Logs
-logs/
 *.log
+logs/
 
-# Backup
-backup/
-*.backup
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
 
-# Temporary
-tmp/
-temp/
-.cache/
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
 
-# Node modules (if any JS tools)
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-venv/
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Ansible
+*.retry
+.ansible/
+
+# Helm
+charts/
+Chart.lock
+
+# ArgoCD
+.argocd/
+
+# Secrets and sensitive files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+.secrets.baseline
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Azure
+.azure/
+
+# Local development
+local/
+dev/
+
+# Test results
+test-results/
+test-output/
+
+# Documentation build
+docs/_build/
+site/
+
+# Package managers
+package-lock.json
+yarn.lock
+Pipfile.lock
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# MacOS
+.AppleDouble
+.LSOverride
+Icon
+
+# Windows
+*.lnk
+
+# Linux
+*~
+
+# JetBrains
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse
+.project
+.metadata
+bin/
+tmp/
+*.tmp
+*.bak
+*.swp
+*~.nib
+local.properties
+.settings/
+.loadpath
+.recommenders
+
+# IntelliJ
+out/
+
+# NetBeans
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# VS Code
+.vscode/
+
+# Local History for Visual Studio Code
+.history/
+
+# Built Visual Studio Code Extensions
+*.vsix
