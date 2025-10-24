@@ -1,7 +1,8 @@
 #!/bin/bash
 ###############################################################################
 # Dynamic IP Address Update Script
-# Automatically updates your IP in Terraform configuration and applies changes
+# Automatically updates your IP in Terraform variables and applies changes.
+# This script should only be used for development if Azure Bastion is disabled.
 ###############################################################################
 
 set -e
@@ -16,173 +17,85 @@ NC='\033[0m'
 print_success() { echo -e "${GREEN}✓ $1${NC}"; }
 print_error() { echo -e "${RED}✗ $1${NC}"; }
 print_info() { echo -e "${YELLOW}ℹ $1${NC}"; }
-print_header() { echo -e "${BLUE}$1${NC}"; }
+print_header() { echo -e "\n${BLUE}### $1 ###${NC}"; }
 
-echo ""
-print_header "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-print_header "  Dynamic IP Address Update for PKI Platform"
-print_header "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
+echo -e "${BLUE}EJBCA PKI Platform - Dynamic IP Updater${NC}"
+echo "=========================================="
 
-# Get script directory
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
-cd "$PROJECT_ROOT/terraform"
+# Check for terraform.tfvars
+TFVARS_FILE="terraform/terraform.tfvars"
+if [ ! -f "$TFVARS_FILE" ]; then
+    print_error "$TFVARS_FILE not found."
+    print_info "Please copy terraform/terraform.tfvars.example to $TFVARS_FILE and configure it first."
+    exit 1
+fi
 
 # Get current public IP
-print_info "Detecting your current public IP address..."
-CURRENT_IP=$(curl -4 -s --max-time 10 ifconfig.me)
+print_info "Detecting your current public IP..."
+CURRENT_IP=$(curl -4 -s --max-time 10 ifconfig.me) || CURRENT_IP=$(curl -4 -s --max-time 10 icanhazip.com)
 
 if [ -z "$CURRENT_IP" ]; then
-    print_error "Failed to detect public IP address"
-    print_info "Trying alternative service..."
-    CURRENT_IP=$(curl -4 -s --max-time 10 icanhazip.com)
-fi
-
-if [ -z "$CURRENT_IP" ]; then
-    print_error "Could not detect public IP. Check internet connection."
+    print_error "Could not detect your public IP. Please check your internet connection."
     exit 1
 fi
+print_success "Detected IP: $CURRENT_IP"
 
-print_success "Current IP: $CURRENT_IP"
-
-# Find old IP in files
-print_info "Finding old IP address in configuration..."
-OLD_IP=$(grep -oP '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?=/32|")' keyvault.tf 2>/dev/null | head -1 || \
-         grep -o '[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' keyvault.tf | head -1)
+# Find old IP in tfvars file
+print_info "Reading current admin_ip_address from $TFVARS_FILE..."
+OLD_IP=$(grep -E '^\s*admin_ip_address\s*=' "$TFVARS_FILE" | awk -F'"' '{print $2}')
 
 if [ -z "$OLD_IP" ]; then
-    print_error "Could not find old IP in configuration"
+    print_error "Could not find 'admin_ip_address' in $TFVARS_FILE."
+    print_info "Please add 'admin_ip_address = \"$CURRENT_IP\"' to your tfvars file."
     exit 1
 fi
-
-print_success "Old IP: $OLD_IP"
+print_success "Current configured IP: $OLD_IP"
 
 # Check if IP has changed
 if [ "$CURRENT_IP" == "$OLD_IP" ]; then
-    print_success "Your IP hasn't changed. No update needed!"
+    print_success "Your IP has not changed. No update needed!"
     exit 0
 fi
 
-echo ""
 print_header "IP Address Change Detected!"
-echo "  Old IP: $OLD_IP"
-echo "  New IP: $CURRENT_IP"
-echo ""
+echo -e "  ${RED}Old IP: $OLD_IP${NC}"
+echo -e "  ${GREEN}New IP: $CURRENT_IP${NC}"
 
 # Confirm update
 read -p "Update configuration and apply changes? (yes/no): " CONFIRM
 if [ "$CONFIRM" != "yes" ]; then
-    print_error "Update cancelled by user"
+    print_error "Update cancelled by user."
     exit 0
 fi
 
-# Backup files
-print_info "Creating backup of configuration files..."
-mkdir -p ../backups
-BACKUP_DIR="../backups/ip-update-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
-cp networking.tf keyvault.tf storage.tf "$BACKUP_DIR/"
-print_success "Backup created: $BACKUP_DIR"
+# Update tfvars file
+print_info "Updating $TFVARS_FILE..."
+sed -i.bak "s/admin_ip_address\s*=\s*\"$OLD_IP\"/admin_ip_address = \"$CURRENT_IP\"/" "$TFVARS_FILE"
+rm "${TFVARS_FILE}.bak"
+print_success "$TFVARS_FILE updated successfully."
 
-# Update files
-print_info "Updating IP address in configuration files..."
+# Run Terraform
+cd terraform
 
-# Update networking.tf
-sed -i.tmp "s/$OLD_IP/$CURRENT_IP/g" networking.tf && rm networking.tf.tmp
-print_success "Updated: networking.tf"
+print_header "Running Terraform"
 
-# Update keyvault.tf  
-sed -i.tmp "s/$OLD_IP/$CURRENT_IP/g" keyvault.tf && rm keyvault.tf.tmp
-print_success "Updated: keyvault.tf"
+print_info "Initializing Terraform..."
+terraform init -upgrade > /dev/null
 
-# Update storage.tf
-sed -i.tmp "s/$OLD_IP/$CURRENT_IP/g" storage.tf && rm storage.tf.tmp
-print_success "Updated: storage.tf"
-
-# Verify changes
-echo ""
-print_info "Verifying changes..."
-if grep -q "$CURRENT_IP" networking.tf && \
-   grep -q "$CURRENT_IP" keyvault.tf && \
-   grep -q "$CURRENT_IP" storage.tf; then
-    print_success "All files updated successfully"
-else
-    print_error "Verification failed. Restoring from backup..."
-    cp "$BACKUP_DIR"/* .
-    exit 1
-fi
-
-# Format and validate
-print_info "Formatting and validating Terraform configuration..."
-terraform fmt -recursive > /dev/null 2>&1
-if terraform validate > /dev/null 2>&1; then
-    print_success "Configuration is valid"
-else
-    print_error "Configuration validation failed"
-    print_info "Restoring from backup..."
-    cp "$BACKUP_DIR"/* .
-    exit 1
-fi
-
-# Create plan
-echo ""
 print_info "Creating Terraform execution plan..."
 terraform plan -out=ip-update.tfplan
 
-if [ $? -ne 0 ]; then
-    print_error "Terraform plan failed"
-    exit 1
-fi
-
-echo ""
-print_header "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-print_header "  Review the plan above"
-print_header "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
-
-# Apply changes
-read -p "Apply these changes? (yes/no): " APPLY_CONFIRM
-if [ "$APPLY_CONFIRM" != "yes" ]; then
-    print_error "Apply cancelled by user"
-    rm -f ip-update.tfplan
-    exit 0
-fi
-
 print_info "Applying changes..."
-terraform apply ip-update.tfplan
-
-if [ $? -eq 0 ]; then
-    echo ""
-    print_success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    print_success "  IP Address Updated Successfully!"
-    print_success "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "  Old IP: $OLD_IP"
-    echo "  New IP: $CURRENT_IP"
-    echo ""
-    echo "  Updated resources:"
-    echo "    ✓ Network Security Groups"
-    echo "    ✓ Azure Key Vault network rules"
-    echo "    ✓ Storage Account network rules"
-    echo ""
-    print_success "You can now access your resources from the new IP!"
-    echo ""
-    
-    # Clean up
-    rm -f ip-update.tfplan
+if terraform apply -auto-approve ip-update.tfplan; then
+    print_success "Terraform apply completed successfully!"
+    print_info "Your Azure firewall rules have been updated with your new IP."
 else
-    print_error "Apply failed!"
-    print_info "Your backup is available at: $BACKUP_DIR"
+    print_error "Terraform apply failed. Please review the output above."
     exit 1
 fi
 
-# Optional: Clean up old backups (keep last 10)
-print_info "Cleaning up old backups (keeping last 10)..."
-cd ../backups
-ls -t | tail -n +11 | xargs rm -rf 2>/dev/null || true
-cd ../terraform
+# Clean up
+rm -f ip-update.tfplan
 
-print_success "Done!"
-
+echo "=========================================="
+print_success "Dynamic IP update complete!"

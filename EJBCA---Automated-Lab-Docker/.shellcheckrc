@@ -1,0 +1,23 @@
+# ShellCheck configuration file
+# https://github.com/koalaman/shellcheck
+
+# Disable specific warnings
+disable=SC1091,SC2034,SC2154
+
+# Enable additional checks
+enable=all
+
+# Set shell dialect
+shell=bash
+
+# Check for sourced files
+check-sourced=true
+
+# Follow external sources
+external-sources=true
+
+# Exclude patterns
+exclude-dir=node_modules,venv,.git
+
+# Format output
+format=tty

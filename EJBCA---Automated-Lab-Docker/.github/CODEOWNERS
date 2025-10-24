@@ -1,0 +1,33 @@
+# Global owners - all files require review from these users
+* @adrian207
+
+# Terraform files require additional review
+/terraform/ @adrian207
+
+# Security-sensitive files require extra scrutiny
+**/*secret* @adrian207
+**/*key* @adrian207
+**/*password* @adrian207
+**/*credential* @adrian207
+**/*token* @adrian207
+**/*auth* @adrian207
+
+# Infrastructure configuration files
+/kubernetes/ @adrian207
+/helm/ @adrian207
+/argocd/ @adrian207
+
+# CI/CD configuration
+/.github/workflows/ @adrian207
+/.github/ @adrian207
+
+# Documentation
+/docs/ @adrian207
+*.md @adrian207
+
+# Configuration files
+/configs/ @adrian207
+/ansible/ @adrian207
+
+# Scripts
+/scripts/ @adrian207
