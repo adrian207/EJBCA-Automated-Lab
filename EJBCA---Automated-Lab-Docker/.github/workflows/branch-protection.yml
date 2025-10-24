@@ -1,0 +1,59 @@
+name: Branch Protection Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  branch-protection-check:
+    name: Branch Protection Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validate commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Checking commit messages..."
+            git log --oneline -1 | grep -E "^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?: .{1,50}" || {
+              echo "❌ Commit message doesn't follow conventional format"
+              echo "Expected format: type(scope): description"
+              echo "Types: feat, fix, docs, style, refactor, test, chore, ci, build, perf, revert"
+              exit 1
+            }
+            echo "✅ Commit message format is valid"
+          fi
+      
+      - name: Check for secrets
+        run: |
+          echo "Checking for potential secrets..."
+          if command -v detect-secrets &> /dev/null; then
+            detect-secrets scan --baseline .secrets.baseline
+          else
+            echo "⚠️ detect-secrets not available, skipping secret check"
+          fi
+      
+      - name: Validate file permissions
+        run: |
+          echo "Checking file permissions..."
+          find . -name "*.sh" -not -perm -111 | while read file; do
+            echo "❌ Shell script $file is not executable"
+            exit 1
+          done
+          echo "✅ All shell scripts have proper permissions"
+      
+      - name: Check for large files
+        run: |
+          echo "Checking for large files..."
+          find . -type f -size +10M -not -path "./.git/*" | while read file; do
+            echo "❌ Large file detected: $file"
+            echo "Consider using Git LFS for files larger than 10MB"
+            exit 1
+          done
+          echo "✅ No large files detected"
