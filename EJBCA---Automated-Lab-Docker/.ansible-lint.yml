@@ -1,0 +1,43 @@
+# Ansible Lint Configuration
+# https://ansible-lint.readthedocs.io/
+
+# Skip list of rules
+skip_list:
+  - yaml[line-length]  # Line too long
+  - name[casing]        # Name should be lowercase
+  - risky-shell-pipe    # Shell pipe used in command
+
+# Exclude paths
+exclude_paths:
+  - .cache/
+  - .github/
+  - test/
+  - tests/
+
+# Enable additional rules
+enable_list:
+  - no-changed-when
+  - no-free-form
+  - no-relative-paths
+
+# Use strict mode
+strict: true
+
+# Verbose output
+verbosity: 1
+
+# Colored output
+colored: true
+
+# Offline mode
+offline: false
+
+# Mock modules
+mock_modules:
+  - docker
+  - kubernetes
+
+# Mock roles
+mock_roles:
+  - role1
+  - role2
