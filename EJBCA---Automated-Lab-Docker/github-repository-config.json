@@ -1,0 +1,298 @@
+{
+  "name": "EJBCA Automated Lab Repository",
+  "description": "Enterprise PKI Platform with EJBCA CE - Automated Lab Environment demonstrating modern DevOps practices, cloud-native technologies, and enterprise security standards",
+  "homepage": "https://github.com/adrian207/EJBCA---Automated-Lab",
+  "topics": [
+    "pki",
+    "ejbca",
+    "certificate-authority",
+    "public-key-infrastructure",
+    "kubernetes",
+    "terraform",
+    "ansible",
+    "devops",
+    "security",
+    "azure",
+    "aks",
+    "helm",
+    "argocd",
+    "gitops",
+    "infrastructure-as-code",
+    "automation",
+    "lab-environment",
+    "enterprise-security",
+    "certificate-management",
+    "ssl-tls",
+    "cryptography",
+    "monitoring",
+    "observability",
+    "linkerd",
+    "nginx",
+    "harbor",
+    "artifactory",
+    "prometheus",
+    "grafana",
+    "loki",
+    "tempo",
+    "opentelemetry",
+    "security-scanning",
+    "vulnerability-management",
+    "secrets-management",
+    "key-management",
+    "compliance",
+    "enterprise-pki",
+    "cloud-native",
+    "microservices",
+    "service-mesh",
+    "container-registry",
+    "ci-cd",
+    "github-actions",
+    "automated-deployment",
+    "infrastructure-automation",
+    "configuration-management",
+    "security-automation",
+    "certificate-lifecycle",
+    "digital-certificates",
+    "x509",
+    "ca-hierarchy",
+    "certificate-profiles",
+    "keyfactor",
+    "enterprise-grade",
+    "production-ready",
+    "scalable",
+    "high-availability",
+    "disaster-recovery",
+    "backup-restore",
+    "audit-logging",
+    "compliance-reporting"
+  ],
+  "has_issues": true,
+  "has_projects": true,
+  "has_wiki": true,
+  "has_discussions": true,
+  "allow_squash_merge": true,
+  "allow_merge_commit": true,
+  "allow_rebase_merge": true,
+  "allow_auto_merge": false,
+  "delete_branch_on_merge": true,
+  "allow_update_branch": true,
+  "use_squash_pr_title_as_default": true,
+  "squash_merge_commit_title": "PR_TITLE",
+  "squash_merge_commit_message": "BLANK",
+  "merge_commit_title": "PR_TITLE",
+  "merge_commit_message": "PR_BODY",
+  "archived": false,
+  "disabled": false,
+  "private": false,
+  "visibility": "public",
+  "default_branch": "main",
+  "web_commit_signoff_required": true,
+  "allow_forking": true,
+  "security_and_analysis": {
+    "advanced_security": {
+      "status": "enabled"
+    },
+    "secret_scanning": {
+      "status": "enabled"
+    },
+    "secret_scanning_push_protection": {
+      "status": "enabled"
+    },
+    "dependabot_alerts": {
+      "status": "enabled"
+    },
+    "dependabot_security_updates": {
+      "status": "enabled"
+    },
+    "code_scanning": {
+      "status": "enabled"
+    }
+  },
+  "branches": [
+    {
+      "name": "main",
+      "protection": {
+        "required_status_checks": {
+          "strict": true,
+          "contexts": [
+            "branch-protection-check",
+            "terraform-validate",
+            "security-scanning",
+            "kubernetes-deploy",
+            "ansible-lint"
+          ]
+        },
+        "enforce_admins": true,
+        "required_pull_request_reviews": {
+          "required_approving_review_count": 2,
+          "dismiss_stale_reviews": true,
+          "require_code_owner_reviews": true,
+          "require_last_push_approval": true
+        },
+        "restrictions": null,
+        "allow_force_pushes": false,
+        "allow_deletions": false,
+        "required_linear_history": true,
+        "required_conversation_resolution": true,
+        "require_signed_commits": true,
+        "lock_branch": false,
+        "allow_fork_syncing": true
+      }
+    },
+    {
+      "name": "develop",
+      "protection": {
+        "required_status_checks": {
+          "strict": true,
+          "contexts": [
+            "branch-protection-check",
+            "terraform-validate",
+            "security-scanning"
+          ]
+        },
+        "enforce_admins": false,
+        "required_pull_request_reviews": {
+          "required_approving_review_count": 1,
+          "dismiss_stale_reviews": true,
+          "require_code_owner_reviews": false,
+          "require_last_push_approval": false
+        },
+        "restrictions": null,
+        "allow_force_pushes": false,
+        "allow_deletions": true,
+        "required_linear_history": false,
+        "required_conversation_resolution": true,
+        "require_signed_commits": false,
+        "lock_branch": false,
+        "allow_fork_syncing": true
+      }
+    }
+  ],
+  "labels": [
+    {
+      "name": "bug",
+      "description": "Something isn't working",
+      "color": "d73a4a"
+    },
+    {
+      "name": "documentation",
+      "description": "Improvements or additions to documentation",
+      "color": "0075ca"
+    },
+    {
+      "name": "duplicate",
+      "description": "This issue or pull request already exists",
+      "color": "cfd3d7"
+    },
+    {
+      "name": "enhancement",
+      "description": "New feature or request",
+      "color": "a2eeef"
+    },
+    {
+      "name": "good first issue",
+      "description": "Good for newcomers",
+      "color": "7057ff"
+    },
+    {
+      "name": "help wanted",
+      "description": "Extra attention is needed",
+      "color": "008672"
+    },
+    {
+      "name": "invalid",
+      "description": "This doesn't seem right",
+      "color": "e4e669"
+    },
+    {
+      "name": "question",
+      "description": "Further information is requested",
+      "color": "d876e3"
+    },
+    {
+      "name": "wontfix",
+      "description": "This will not be worked on",
+      "color": "ffffff"
+    },
+    {
+      "name": "pki",
+      "description": "PKI related issues",
+      "color": "1d76db"
+    },
+    {
+      "name": "ejbca",
+      "description": "EJBCA specific issues",
+      "color": "0e8a16"
+    },
+    {
+      "name": "kubernetes",
+      "description": "Kubernetes related issues",
+      "color": "326ce5"
+    },
+    {
+      "name": "terraform",
+      "description": "Terraform infrastructure issues",
+      "color": "7c3aed"
+    },
+    {
+      "name": "security",
+      "description": "Security related issues",
+      "color": "b60205"
+    },
+    {
+      "name": "devops",
+      "description": "DevOps process issues",
+      "color": "0e8a16"
+    },
+    {
+      "name": "azure",
+      "description": "Azure cloud issues",
+      "color": "0078d4"
+    },
+    {
+      "name": "monitoring",
+      "description": "Monitoring and observability",
+      "color": "f9d0c4"
+    },
+    {
+      "name": "ci-cd",
+      "description": "CI/CD pipeline issues",
+      "color": "fbca04"
+    },
+    {
+      "name": "priority: high",
+      "description": "High priority issue",
+      "color": "d73a4a"
+    },
+    {
+      "name": "priority: medium",
+      "description": "Medium priority issue",
+      "color": "fbca04"
+    },
+    {
+      "name": "priority: low",
+      "description": "Low priority issue",
+      "color": "0e8a16"
+    },
+    {
+      "name": "status: needs-triage",
+      "description": "Issue needs triage",
+      "color": "f9d0c4"
+    },
+    {
+      "name": "status: in-progress",
+      "description": "Work in progress",
+      "color": "fbca04"
+    },
+    {
+      "name": "status: blocked",
+      "description": "Blocked by external dependency",
+      "color": "d73a4a"
+    },
+    {
+      "name": "status: ready-for-review",
+      "description": "Ready for code review",
+      "color": "0e8a16"
+    }
+  ]
+}
