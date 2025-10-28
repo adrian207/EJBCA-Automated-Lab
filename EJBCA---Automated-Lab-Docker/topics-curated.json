@@ -1,0 +1,24 @@
+{
+  "names": [
+    "pki",
+    "ejbca",
+    "certificate-authority",
+    "kubernetes",
+    "terraform",
+    "ansible",
+    "azure",
+    "devops",
+    "security",
+    "monitoring",
+    "gitops",
+    "infrastructure-as-code",
+    "cloud-native",
+    "enterprise-security",
+    "automation",
+    "helm",
+    "docker",
+    "compliance",
+    "observability",
+    "lab-environment"
+  ]
+}

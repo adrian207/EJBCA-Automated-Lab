@@ -1,6 +1,10 @@
 # Enterprise PKI Platform - EJBCA CE Automated Lab
 
+**Version:** 1.0.0 | **Release Date:** 2025-10-26 | **Status:** 🟢 Stable
+
 [![Build Status](https://github.com/adrian207/EJBCA---Automated-Lab/workflows/Terraform%20Plan/badge.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/actions)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/releases)
+[![Release Date](https://img.shields.io/badge/release-2025--10--26-blue.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/releases)
 [![Security Scan](https://github.com/adrian207/EJBCA---Automated-Lab/workflows/Security%20Scanning/badge.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/actions)
 [![Kubernetes Deploy](https://github.com/adrian207/EJBCA---Automated-Lab/workflows/Kubernetes%20Deployment/badge.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/actions)
 [![Branch Protection](https://github.com/adrian207/EJBCA---Automated-Lab/workflows/Branch%20Protection%20Check/badge.svg)](https://github.com/adrian207/EJBCA---Automated-Lab/actions)

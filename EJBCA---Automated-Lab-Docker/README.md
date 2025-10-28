@@ -1,5 +1,7 @@
 # Enterprise PKI Platform - EJBCA CE Docker Edition
 
+**Version:** 1.0.0 | **Release Date:** 2025-10-26 | **Status:** 🟢 Stable
+
 **🐳 Cost-Optimized Docker Compose Implementation**
 
 A professional-grade PKI (Public Key Infrastructure) platform using Keyfactor EJBCA Community Edition deployed with Docker Compose on Azure VMs. This architecture provides **60-78% cost savings** compared to AKS while maintaining enterprise security standards.

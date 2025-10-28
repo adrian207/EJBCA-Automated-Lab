@@ -1,0 +1,58 @@
+{
+  "version": "1.0.0",
+  "name": "EJBCA Automated Lab",
+  "description": "Enterprise PKI Platform with EJBCA CE - Automated Lab Environment demonstrating modern DevOps practices, cloud-native technologies, and enterprise security standards",
+  "release_date": "2025-10-26",
+  "status": "stable",
+  "major_version": 1,
+  "minor_version": 0,
+  "patch_version": 0,
+  "components": {
+    "ejbca": "8.3.0",
+    "kubernetes": "1.28.0",
+    "terraform": "1.6.0",
+    "ansible": "2.15.0",
+    "helm": "3.13.0",
+    "docker": "24.0.0",
+    "terraform": "1.6.0",
+    "prometheus": "latest",
+    "grafana": "latest",
+    "linkerd": "stable-2.14"
+  },
+  "features": [
+    "Kubernetes orchestration with Helm charts",
+    "Terraform infrastructure automation",
+    "Ansible configuration management",
+    "Comprehensive monitoring and observability",
+    "GitOps workflows with ArgoCD",
+    "Security scanning and compliance",
+    "High availability deployment",
+    "Multi-cloud support",
+    "Automated deployment pipelines"
+  ],
+  "changelog": {
+    "1.0.0": {
+      "date": "2025-10-26",
+      "type": "initial_release",
+      "changes": [
+        "Initial release with full PKI platform implementation",
+        "Comprehensive documentation and setup guides",
+        "GitHub Actions CI/CD pipelines",
+        "Security scanning and vulnerability management",
+        "Branch protection and code quality rules",
+        "Issue and PR templates",
+        "Repository metadata and topics"
+      ]
+    }
+  },
+  "authors": [
+    {
+      "name": "Adrian Johnson",
+      "email": "adrian207@gmail.com",
+      "role": "Lead Developer"
+    }
+  ],
+  "license": "MIT",
+  "repository": "https://github.com/adrian207/EJBCA---Automated-Lab",
+  "documentation": "https://github.com/adrian207/EJBCA---Automated-Lab/blob/main/docs/README.md"
+}
