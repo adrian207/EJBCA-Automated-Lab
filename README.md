@@ -1,227 +1,69 @@
-# Enterprise PKI Platform - EJBCA CE Automated Lab
+# EJBCA-Automated-Lab
 
-A professional-grade PKI (Public Key Infrastructure) platform demonstrating Keyfactor EJBCA Community Edition with modern DevOps practices, cloud-native technologies, and enterprise security standards.
+A PKI lab that runs Keyfactor EJBCA Community Edition on Azure Kubernetes Service. Terraform builds the Azure side (AKS, PostgreSQL, Key Vault with CA keys, storage, Bastion, and Windows Server 2025 and RHEL 9 VMs for enrolment testing); a deploy script then installs EJBCA with a Helm chart, plus ingress, Linkerd, Prometheus, Loki, OpenTelemetry, Harbor and Argo CD.
 
-## 🏗️ Architecture Overview
+## Repository layout
 
-This platform demonstrates a production-ready PKI infrastructure with:
+| Folder | What it is | State |
+|---|---|---|
+| [`EJBCA---Automated-Lab/`](EJBCA---Automated-Lab/) | AKS version: Terraform, Helm chart, Kubernetes values, Argo CD apps, Ansible, scripts | Terraform validates; this is the version to use |
+| [`EJBCA---Automated-Lab-Docker/`](EJBCA---Automated-Lab-Docker/) | Lower-cost variant with EJBCA on Docker Compose on Azure VMs | Incomplete: its Terraform does not validate, and the Compose file mounts `nginx/`, `prometheus/` and `grafana/` config folders that are not in the repository |
 
-- **PKI Core**: Keyfactor EJBCA CE (Certificate Authority)
-- **Infrastructure**: Terraform-managed Azure resources (AKS, Key Vault, Storage)
-- **Orchestration**: Kubernetes with Helm charts
-- **Service Mesh**: Linkerd for secure service-to-service communication
-- **Ingress**: NGINX Ingress Controller
-- **GitOps**: ArgoCD for declarative deployments
-- **CI/CD**: GitHub Actions with security scanning
-- **Configuration Management**: Ansible for OS provisioning
-- **Artifact Management**: Harbor Registry & JFrog Artifactory
-- **Security Scanning**: Trivy for vulnerability detection
-- **Observability**: Loki for logs, OpenTelemetry for traces
-- **Cloud Integration**: Azure Key Vault & Storage
+## What the AKS version builds
 
-## 📋 Prerequisites
+**Azure (`EJBCA---Automated-Lab/terraform/`):**
 
-- Azure subscription with appropriate permissions
-- kubectl (v1.28+)
-- Terraform (v1.6+)
-- Ansible (v2.15+)
-- Helm (v3.12+)
-- Docker (v24+)
-- Azure CLI (v2.50+)
-- Git
+| Resource | Details |
+|---|---|
+| AKS | Kubernetes 1.28 by default, autoscaling system pool plus `apps` and `pki` node pools, `Standard_D4s_v3` nodes |
+| Database | Azure Database for PostgreSQL Flexible Server 15 (`GP_Standard_D4s_v3`) for EJBCA |
+| Key Vault | Root and subordinate CA keys (`ejbca-root-ca-key`, `ejbca-sub-ca-key`), a wildcard TLS certificate, and generated passwords for PostgreSQL, the EJBCA superadmin, Harbor, Argo CD and the Windows VM |
+| Storage | Containers for EJBCA backups, issued certificates and logs, plus a file share |
+| Network | VNet with AKS, VM and Bastion subnets, NSGs, Azure Bastion, a DNS zone |
+| Test clients | Windows Server 2025 and RHEL 9.3 VMs (`Standard_D4s_v3`), reached through Bastion |
+| Other | Azure Container Registry, Log Analytics workspace |
 
-## 🚀 Quick Start
+**Kubernetes (`scripts/deploy.sh`):** Linkerd and Linkerd Viz, ingress-nginx, kube-prometheus-stack, Loki, the OpenTelemetry Collector, Harbor, Argo CD, then EJBCA CE 8.3 from `helm/ejbca-ce`. Argo CD is given a project and applications from `argocd/`. Values for Tempo and JFrog Artifactory are included but not installed by the script.
+
+**Configuration:** `configs/ejbca/ca-hierarchy.yaml` and `certificate-profiles.json` describe the intended CA hierarchy and profiles; `ansible/` prepares the Windows and RHEL test clients.
+
+## Requirements
+
+- Azure subscription with rights to create AKS, PostgreSQL, Key Vault and role assignments
+- Azure CLI, Terraform 1.6+, kubectl, Helm 3, and the `linkerd` CLI
+- Ansible, for the test-client playbooks
+
+## Quick start
 
 ```bash
-# 1. Clone and initialize
-git clone <repository-url>
-cd EJBCA---Automated-Lab
+git clone https://github.com/adrian207/EJBCA-Automated-Lab.git
+cd EJBCA-Automated-Lab/EJBCA---Automated-Lab
 
-# 2. Configure Azure credentials
-az login
-export ARM_SUBSCRIPTION_ID="your-subscription-id"
+cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+# Edit terraform.tfvars: location, names, allowed IP addresses, and a current
+# aks_kubernetes_version (list with: az aks get-versions --location <region> -o table)
 
-# 3. Deploy infrastructure
-cd terraform
-terraform init
-terraform plan -out=tfplan
-terraform apply tfplan
-
-# 4. Configure kubectl
-az aks get-credentials --resource-group ejbca-platform-rg --name ejbca-aks-cluster
-
-# 5. Deploy platform components
-cd ../kubernetes
-./deploy.sh
-
-# 6. Access EJBCA
-kubectl get ingress -n ejbca
+./scripts/deploy.sh
 ```
 
-## 📁 Project Structure
+`deploy.sh` runs Terraform, fetches AKS credentials, installs Linkerd and the Helm releases, configures Argo CD and prints the URLs. `scripts/update-my-ip.sh` updates the allowed IP when yours changes. `scripts/demo-scenarios.sh` runs demonstrations of ACME, REST API, SCEP, CMP and EST enrolment, OCSP, CRLs, code and container signing, and certificate transparency against the deployed EJBCA.
 
-```
-.
-├── README.md                                    # This file
-└── EJBCA---Automated-Lab/                      # Main project directory
-    ├── docs/                                   # Comprehensive documentation
-    │   ├── ANALYSIS-REPORT.md
-    │   ├── BASTION-SETUP-GUIDE.md
-    │   ├── DYNAMIC-IP-SOLUTIONS.md
-    │   ├── SECURITY-FIXES-CHECKLIST.md
-    │   └── ejbca-features.md
-    ├── terraform/                              # Infrastructure as Code
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   ├── outputs.tf
-    │   ├── aks.tf
-    │   ├── networking.tf
-    │   ├── keyvault.tf
-    │   ├── storage.tf
-    │   └── compute.tf
-    ├── ansible/                                # Configuration Management
-    │   ├── playbooks/
-    │   │   ├── windows-server-2025.yml
-    │   │   ├── rhel-latest.yml
-    │   │   └── common-setup.yml
-    │   └── inventory/
-    ├── kubernetes/                             # K8s Manifests
-    │   ├── observability/
-    │   ├── ingress-nginx/
-    │   ├── linkerd/
-    │   ├── harbor/
-    │   └── artifactory/
-    ├── helm/                                   # Helm Charts
-    │   └── ejbca-ce/
-    ├── argocd/                                 # GitOps Configurations
-    │   ├── applications/
-    │   └── projects/
-    ├── .github/                                # CI/CD Pipelines
-    │   └── workflows/
-    ├── scripts/                                # Utility Scripts
-    │   ├── deploy.sh
-    │   ├── demo-scenarios.sh
-    │   ├── apply-security-fixes.sh
-    │   └── update-my-ip.sh
-    └── configs/                                # Application Configs
-        └── ejbca/
-```
+Reach the VMs with `az network bastion rdp` or `az network bastion ssh`; `terraform output` prints the exact commands.
 
-## 🎯 EJBCA CE Features Demonstrated
+The folder's own [README](EJBCA---Automated-Lab/README.md), [QUICKSTART](EJBCA---Automated-Lab/QUICKSTART.md) and [IMPLEMENTATION-GUIDE](EJBCA---Automated-Lab/IMPLEMENTATION-GUIDE.md) go into more detail.
 
-### 1. **Certificate Authority Management**
-- Root CA and Sub CA hierarchy
-- Multiple certificate profiles
-- End entity profiles
-- Certificate issuance workflows
+## Status and limitations
 
-### 2. **Protocol Support**
-- ACME (Automated Certificate Management Environment)
-- EST (Enrollment over Secure Transport)
-- SCEP (Simple Certificate Enrollment Protocol)
-- CMP (Certificate Management Protocol)
-- Web Services API (SOAP/REST)
+- **Cost.** Three or more D4s_v3 AKS nodes, two D4s_v3 VMs, a General Purpose PostgreSQL server and Bastion add up quickly. Destroy the lab when you are not using it (`terraform destroy`).
+- **Kubernetes version.** The default `1.28` may no longer be offered by AKS in your region; set a current version before applying.
+- **CA setup is manual.** The Helm chart deploys EJBCA, but nothing loads `configs/ejbca/ca-hierarchy.yaml` or `certificate-profiles.json`; create the CAs and profiles in the EJBCA admin UI or CLI using them as the reference.
+- **CI workflows don't run.** The GitHub Actions workflows sit in `EJBCA---Automated-Lab/.github/workflows/`; GitHub only runs workflows from the repository root's `.github/workflows/`.
+- Checked with `terraform validate`, YAML parsing and shellcheck, not deployed end to end in this repository.
 
-### 3. **Certificate Lifecycle**
-- Issuance and enrollment
-- Renewal and revocation
-- CRL (Certificate Revocation List) generation
-- OCSP (Online Certificate Status Protocol) responder
+## License
 
-### 4. **Advanced Features**
-- HSM integration (Azure Key Vault)
-- Certificate transparency logging
-- Custom certificate extensions
-- Publisher for certificate distribution
-- Key recovery and archival
+MIT. See [LICENSE](LICENSE).
 
-### 5. **Administration**
-- Role-based access control (RBAC)
-- Audit logging
-- Administrator approval workflows
-- Backup and restore procedures
+## Author
 
-## 🔒 Security Features
-
-- **Network Security**: Linkerd mTLS between services
-- **Secret Management**: Azure Key Vault integration
-- **Image Scanning**: Trivy in CI/CD pipeline
-- **Ingress Security**: TLS termination with NGINX
-- **RBAC**: Kubernetes RBAC and EJBCA role-based access
-
-## 📊 Observability
-
-- **Logging**: Loki for centralized log aggregation
-- **Tracing**: OpenTelemetry for distributed tracing
-- **Metrics**: Prometheus metrics exposure
-- **Dashboards**: Grafana for visualization
-
-## 🔄 GitOps Workflow
-
-1. Code changes pushed to GitHub
-2. GitHub Actions validates and tests
-3. Trivy scans for vulnerabilities
-4. Artifacts published to Harbor/Artifactory
-5. ArgoCD detects changes and syncs
-6. Kubernetes applies configurations
-
-## 🛠️ Deployment Scenarios
-
-### Development
-- Single node with minimal resources
-- In-cluster databases
-- Development certificates
-
-### Staging
-- Multi-node cluster
-- External managed databases
-- Valid staging certificates
-
-### Production
-- High-availability configuration
-- Azure-managed services (Database, Key Vault)
-- Production-grade certificates
-- Disaster recovery setup
-
-## 📖 Documentation
-
-- [QUICKSTART Guide](EJBCA---Automated-Lab/QUICKSTART.md) - Fast track deployment
-- [EJBCA Features Guide](EJBCA---Automated-Lab/docs/ejbca-features.md) - Complete feature demos
-- [Security Analysis Report](EJBCA---Automated-Lab/docs/ANALYSIS-REPORT.md) - Performance & security analysis
-- [Implementation Guide](EJBCA---Automated-Lab/IMPLEMENTATION-GUIDE.md) - Detailed setup steps
-- [Azure Bastion Setup](EJBCA---Automated-Lab/docs/BASTION-SETUP-GUIDE.md) - Secure VM access
-- [Dynamic IP Solutions](EJBCA---Automated-Lab/docs/DYNAMIC-IP-SOLUTIONS.md) - IP management options
-- [Security Fixes Checklist](EJBCA---Automated-Lab/docs/SECURITY-FIXES-CHECKLIST.md) - Security improvements
-
-## 👤 Author
-
-**Adrian Johnson**  
-📧 Email: adrian207@gmail.com  
-💼 Enterprise PKI & Cloud Infrastructure Specialist
-
-## 🤝 Contributing
-
-This is a demonstration lab environment. Feel free to adapt and extend for your use case.
-
-## 📝 License
-
-MIT License - See LICENSE file for details
-
-## 🔗 References
-
-- [Keyfactor EJBCA CE Documentation](https://doc.primekey.com/ejbca)
-- [Azure AKS Documentation](https://docs.microsoft.com/en-us/azure/aks/)
-- [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
-- [Linkerd Documentation](https://linkerd.io/docs/)
-
-## ⚠️ Important Notes
-
-- This is a lab/demo environment - adapt security settings for production
-- Review all default passwords and credentials before deployment
-- Ensure compliance with your organization's security policies
-- Back up CA keys and certificates securely
-
----
-
-**Status**: 🚧 Active Development | **Version**: 1.0.0 | **Last Updated**: October 2025
-
+Adrian Johnson · [github.com/adrian207](https://github.com/adrian207)
