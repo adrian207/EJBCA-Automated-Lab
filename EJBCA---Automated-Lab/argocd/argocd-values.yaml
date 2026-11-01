@@ -1,0 +1,293 @@
+## ArgoCD Configuration
+## Install with: helm install argocd argo/argo-cd -f argocd-values.yaml -n argocd
+
+global:
+  image:
+    repository: quay.io/argoproj/argocd
+    tag: v2.9.3
+  
+  ## Domain for ArgoCD
+  domain: argocd.local
+  
+  ## Additional labels for all resources
+  additionalLabels: {}
+
+## Redis
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7.2.3-alpine
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+redis-ha:
+  enabled: true
+  replicas: 3
+  
+  haproxy:
+    enabled: true
+    replicas: 3
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+## Controller
+controller:
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  ## Environment variables
+  env:
+    - name: ARGOCD_RECONCILIATION_TIMEOUT
+      value: 180s
+
+## Server
+server:
+  replicas: 3
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  ## Ingress
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+      nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    hosts:
+      - argocd.local
+    tls:
+      - secretName: argocd-tls
+        hosts:
+          - argocd.local
+  
+  ## Metrics
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  ## Configuration
+  config:
+    url: https://argocd.local
+    application.instanceLabelKey: argocd.argoproj.io/instance
+    
+    ## OIDC/SSO Configuration (optional)
+    # oidc.config: |
+    #   name: Azure AD
+    #   issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+    #   clientID: <client-id>
+    #   clientSecret: $oidc.azure.clientSecret
+    #   requestedScopes: ["openid", "profile", "email"]
+    
+    ## Resource Customizations
+    resource.customizations: |
+      networking.k8s.io/Ingress:
+        health.lua: |
+          hs = {}
+          hs.status = "Healthy"
+          return hs
+    
+    ## Repository Credentials
+    repositories: |
+      - url: https://github.com/YOUR-ORG/EJBCA---Automated-Lab.git
+        passwordSecret:
+          name: git-repo-secret
+          key: password
+        usernameSecret:
+          name: git-repo-secret
+          key: username
+  
+  ## RBAC
+  rbacConfig:
+    policy.default: role:readonly
+    policy.csv: |
+      p, role:admin, *, *, *, allow
+      p, role:developer, applications, *, */*, allow
+      p, role:developer, projects, get, *, allow
+      p, role:readonly, applications, get, */*, allow
+      p, role:readonly, projects, get, *, allow
+      
+      g, argocd-admins, role:admin
+      g, pki-developers, role:developer
+      g, pki-viewers, role:readonly
+    
+    scopes: '[groups, email]'
+
+## Repo Server
+repoServer:
+  replicas: 3
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  ## Metrics
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  ## Volume mounts for custom plugins
+  volumes:
+    - name: custom-tools
+      emptyDir: {}
+  
+  volumeMounts:
+    - name: custom-tools
+      mountPath: /custom-tools
+
+## Application Controller
+applicationSet:
+  enabled: true
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+
+## Notifications
+notifications:
+  enabled: true
+  
+  argocdUrl: https://argocd.local
+  
+  ## Notification Services (Slack, Teams, Email, etc.)
+  notifiers:
+    service.slack: |
+      token: $slack-token
+    
+    # service.email.gmail: |
+    #   username: $email-username
+    #   password: $email-password
+    #   host: smtp.gmail.com
+    #   port: 465
+    #   from: $email-username
+  
+  ## Notification Templates
+  templates:
+    template.app-deployed: |
+      message: |
+        Application {{.app.metadata.name}} is now running new version.
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#18be52",
+            "fields": [{
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            }, {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL}}",
+              "short": true
+            }]
+          }]
+    
+    template.app-health-degraded: |
+      message: |
+        Application {{.app.metadata.name}} health is degraded.
+      slack:
+        attachments: |
+          [{
+            "title": "{{ .app.metadata.name}}",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#f4c030",
+            "fields": [{
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            }]
+          }]
+  
+  ## Notification Triggers
+  triggers:
+    trigger.on-deployed: |
+      - when: app.status.sync.status == 'Synced'
+        send: [app-deployed]
+    
+    trigger.on-health-degraded: |
+      - when: app.status.health.status == 'Degraded'
+        send: [app-health-degraded]
+  
+  ## Subscriptions
+  subscriptions:
+    - recipients:
+        - slack:general
+      triggers:
+        - on-deployed
+        - on-health-degraded
+
+## Dex (OAuth2 / OIDC)
+dex:
+  enabled: false
+  # Enable if using Dex for authentication
+
+## Configs
+configs:
+  secret:
+    argocdServerAdminPassword: "$2a$10$rRyBsGSHK6.uc8fntPwVIuLVHgsAhAX7TcdrqW/RADU0uh7CaChLa"  # Change this! (bcrypt hash)
+    argocdServerAdminPasswordMtime: "2024-01-01T00:00:00Z"
+  
+  ## Repository credentials
+  credentialTemplates:
+    github-creds:
+      url: https://github.com/YOUR-ORG
+      username: git
+      password: $git-token
+
+## High Availability
+highAvailability:
+  enabled: true
+

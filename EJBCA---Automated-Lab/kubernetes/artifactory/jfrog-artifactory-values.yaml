@@ -1,0 +1,232 @@
+## JFrog Artifactory Configuration
+## Install with: helm install artifactory jfrog/artifactory -f jfrog-artifactory-values.yaml -n artifactory
+
+## Artifactory Configuration
+artifactory:
+  ## Admin Access
+  admin:
+    password: "password"  # Change this!
+    
+  ## Persistence
+  persistence:
+    enabled: true
+    size: 200Gi
+    storageClass: "managed-premium"
+    accessMode: ReadWriteOnce
+  
+  ## Resources
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
+  
+  ## Replicator (for HA)
+  replicaCount: 3
+  
+  ## Service
+  service:
+    type: ClusterIP
+  
+  ## Java Options
+  javaOpts:
+    xms: "2g"
+    xmx: "6g"
+    other: "-XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+  
+  ## Custom Configuration
+  customInitContainersBegin: |
+    - name: "download-plugins"
+      image: "curlimages/curl:latest"
+      command:
+        - 'sh'
+        - '-c'
+        - |
+          echo "Downloading custom plugins..."
+  
+  ## Node Selector
+  nodeSelector: {}
+  
+  ## Tolerations
+  tolerations: []
+  
+  ## Affinity - spread across nodes
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - artifactory
+            topologyKey: kubernetes.io/hostname
+
+## PostgreSQL Database
+postgresql:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: bitnami/postgresql
+    tag: 15.5.0
+  
+  auth:
+    username: artifactory
+    password: "changeme"  # Change this!
+    database: artifactory
+    existingSecret: ""
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: "managed-premium"
+    
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+  
+  ## External PostgreSQL (recommended for production)
+  # enabled: false
+
+## Use external database
+# database:
+#   type: postgresql
+#   driver: org.postgresql.Driver
+#   url: "jdbc:postgresql://postgresql.database:5432/artifactory"
+#   user: artifactory
+#   password: "changeme"
+
+## Nginx (Reverse Proxy)
+nginx:
+  enabled: true
+  replicaCount: 2
+  
+  service:
+    type: ClusterIP
+    loadBalancerIP: ""
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  ## Ingress
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+    hosts:
+      - artifactory.local
+    tls:
+      - secretName: artifactory-tls
+        hosts:
+          - artifactory.local
+
+## Xray (Security Scanning) - Optional
+xray:
+  enabled: true
+  replicaCount: 2
+  
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: "managed-premium"
+  
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+
+## Distribution (Edge Nodes) - Optional
+distribution:
+  enabled: false
+
+## Mission Control - Optional
+missionControl:
+  enabled: false
+
+## Pipelines - Optional
+pipelines:
+  enabled: false
+
+## RBAC
+rbac:
+  create: true
+  role:
+    rules: []
+
+## Service Account
+serviceAccount:
+  create: true
+  name: artifactory
+
+## Pod Security Policy
+podSecurityPolicy:
+  enabled: false
+
+## Network Policy
+networkPolicy:
+  enabled: true
+
+## Metrics for Prometheus
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: "30s"
+
+## Azure Blob Storage for Artifacts (recommended)
+# artifactory:
+#   persistence:
+#     type: azure-blob-storage
+#     azureblob:
+#       accountName: "azurestorageaccount"
+#       accountKey: "base64encodedaccountkey"
+#       containerName: "artifactory"
+#       endpoint: "core.windows.net"
+
+## Custom Environment Variables
+artifactory:
+  extraEnvironmentVariables:
+    - name: ENABLE_ACCESS_LOG
+      value: "true"
+    - name: JF_SHARED_DATABASE_TYPE
+      value: "postgresql"
+    - name: JF_SHARED_DATABASE_USERNAME
+      value: "artifactory"
+    - name: JF_SHARED_DATABASE_URL
+      value: "jdbc:postgresql://artifactory-postgresql:5432/artifactory"
+
+## Installation Access Control
+installer:
+  platform: "kubernetes"
+  
+## System YAML Configuration
+systemYaml:
+  existingSecret: ""
+  
+## Binarystore Configuration
+binarystore:
+  enabled: true
+  maxCacheSize: 50000000000  # 50GB
+  cacheProviderDir: cache
+

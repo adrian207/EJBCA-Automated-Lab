@@ -1,0 +1,119 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: pki-platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: PKI Platform Project - EJBCA and related infrastructure
+  
+  ## Source Repositories
+  sourceRepos:
+    - 'https://github.com/YOUR-ORG/EJBCA---Automated-Lab.git'
+    - 'https://prometheus-community.github.io/helm-charts'
+    - 'https://grafana.github.io/helm-charts'
+    - 'https://open-telemetry.github.io/opentelemetry-helm-charts'
+    - 'https://kubernetes.github.io/ingress-nginx'
+    - 'https://charts.jetstack.io'
+    - 'https://helm.goharbor.io'
+    - 'https://charts.jfrog.io'
+    - 'https://linkerd.github.io/linkerd2'
+  
+  ## Destinations
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
+  
+  ## Cluster Resource Whitelist (what cluster-scoped resources are allowed)
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRole
+    - group: 'rbac.authorization.k8s.io'
+      kind: ClusterRoleBinding
+    - group: 'apiextensions.k8s.io'
+      kind: CustomResourceDefinition
+    - group: 'admissionregistration.k8s.io'
+      kind: MutatingWebhookConfiguration
+    - group: 'admissionregistration.k8s.io'
+      kind: ValidatingWebhookConfiguration
+    - group: 'networking.k8s.io'
+      kind: IngressClass
+    - group: 'storage.k8s.io'
+      kind: StorageClass
+    - group: 'cert-manager.io'
+      kind: ClusterIssuer
+    - group: 'policy'
+      kind: PodSecurityPolicy
+  
+  ## Namespace Resource Whitelist (empty means all)
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  
+  ## Roles for project-level RBAC
+  roles:
+    - name: admin
+      description: Admin privileges for PKI platform
+      policies:
+        - p, proj:pki-platform:admin, applications, *, pki-platform/*, allow
+        - p, proj:pki-platform:admin, clusters, get, *, allow
+        - p, proj:pki-platform:admin, repositories, *, *, allow
+        - p, proj:pki-platform:admin, logs, get, pki-platform/*, allow
+        - p, proj:pki-platform:admin, exec, create, pki-platform/*, allow
+      groups:
+        - pki-admins
+    
+    - name: developer
+      description: Developer access for PKI platform
+      policies:
+        - p, proj:pki-platform:developer, applications, get, pki-platform/*, allow
+        - p, proj:pki-platform:developer, applications, sync, pki-platform/*, allow
+        - p, proj:pki-platform:developer, logs, get, pki-platform/*, allow
+      groups:
+        - pki-developers
+    
+    - name: readonly
+      description: Read-only access for PKI platform
+      policies:
+        - p, proj:pki-platform:readonly, applications, get, pki-platform/*, allow
+        - p, proj:pki-platform:readonly, logs, get, pki-platform/*, allow
+      groups:
+        - pki-viewers
+  
+  ## Sync Windows - when syncs are allowed
+  syncWindows:
+    - kind: allow
+      schedule: '0 0 * * *'
+      duration: 1h
+      applications:
+        - '*'
+      namespaces:
+        - '*'
+      clusters:
+        - '*'
+    
+    - kind: deny
+      schedule: '0 22 * * 5'
+      duration: 48h
+      applications:
+        - '*-prod'
+      manualSync: true
+  
+  ## Orphaned Resources Monitoring
+  orphanedResources:
+    warn: true
+    ignore:
+      - group: ''
+        kind: ConfigMap
+        name: kube-root-ca.crt
+  
+  ## Signature Keys (for signed commits/tags)
+  signatureKeys:
+    - keyID: ""  # Add GPG key ID if using signed commits
+  
+  ## Permitted plugins
+  permitOnlyProjectScopedClusters: false
+

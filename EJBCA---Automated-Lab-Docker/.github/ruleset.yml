@@ -75,7 +75,7 @@ rules:
     enforcement: "active"
     conditions: {}
     parameters:
-      pattern: "^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?: .{1,50}"
+      pattern: '^(feat|fix|docs|style|refactor|test|chore|ci|build|perf|revert)(\(.+\))?: .{1,50}'
       operator: "regex"
 
   - name: "File path rules"

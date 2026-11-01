@@ -1,0 +1,204 @@
+{
+  "certificateProfiles": [
+    {
+      "name": "SERVER_CERTIFICATE",
+      "type": "END_ENTITY",
+      "description": "TLS/SSL Server Certificate Profile",
+      "validity": "730d",
+      "keyUsage": [
+        "digitalSignature",
+        "keyEncipherment"
+      ],
+      "extendedKeyUsage": [
+        "serverAuth"
+      ],
+      "subjectAlternativeNameExtension": {
+        "enabled": true,
+        "critical": false,
+        "types": [
+          "dNSName",
+          "iPAddress"
+        ]
+      },
+      "certificatePolicies": [
+        {
+          "policyId": "2.16.840.1.114028.10.1.2",
+          "qualifier": "https://pki.local/cps"
+        }
+      ],
+      "allowedKeyAlgorithms": [
+        "RSA",
+        "ECDSA"
+      ],
+      "minimumKeyLength": 2048,
+      "signatureAlgorithm": "SHA256WithRSA",
+      "allowExtensionOverride": false,
+      "useCertificateTransparency": true
+    },
+    {
+      "name": "CLIENT_CERTIFICATE",
+      "type": "END_ENTITY",
+      "description": "TLS Client Authentication Certificate Profile",
+      "validity": "365d",
+      "keyUsage": [
+        "digitalSignature"
+      ],
+      "extendedKeyUsage": [
+        "clientAuth",
+        "emailProtection"
+      ],
+      "subjectAlternativeNameExtension": {
+        "enabled": true,
+        "critical": false,
+        "types": [
+          "rfc822Name",
+          "uniformResourceIdentifier"
+        ]
+      },
+      "allowedKeyAlgorithms": [
+        "RSA",
+        "ECDSA"
+      ],
+      "minimumKeyLength": 2048,
+      "signatureAlgorithm": "SHA256WithRSA",
+      "allowExtensionOverride": false
+    },
+    {
+      "name": "CODE_SIGNING",
+      "type": "END_ENTITY",
+      "description": "Code Signing Certificate Profile",
+      "validity": "1095d",
+      "keyUsage": [
+        "digitalSignature"
+      ],
+      "extendedKeyUsage": [
+        "codeSigning"
+      ],
+      "allowedKeyAlgorithms": [
+        "RSA"
+      ],
+      "minimumKeyLength": 3072,
+      "signatureAlgorithm": "SHA256WithRSA",
+      "allowExtensionOverride": false,
+      "useCertificateTransparency": false
+    },
+    {
+      "name": "DOCUMENT_SIGNING",
+      "type": "END_ENTITY",
+      "description": "Document Signing Certificate Profile (PDF, etc.)",
+      "validity": "730d",
+      "keyUsage": [
+        "digitalSignature",
+        "nonRepudiation"
+      ],
+      "extendedKeyUsage": [
+        "1.3.6.1.4.1.311.10.3.12"
+      ],
+      "allowedKeyAlgorithms": [
+        "RSA",
+        "ECDSA"
+      ],
+      "minimumKeyLength": 2048,
+      "signatureAlgorithm": "SHA256WithRSA"
+    },
+    {
+      "name": "IPSEC_VPN",
+      "type": "END_ENTITY",
+      "description": "IPsec VPN Certificate Profile",
+      "validity": "365d",
+      "keyUsage": [
+        "digitalSignature",
+        "keyEncipherment"
+      ],
+      "extendedKeyUsage": [
+        "serverAuth",
+        "clientAuth",
+        "ipsecEndSystem",
+        "ipsecTunnel",
+        "ipsecUser"
+      ],
+      "subjectAlternativeNameExtension": {
+        "enabled": true,
+        "critical": false,
+        "types": [
+          "dNSName",
+          "iPAddress"
+        ]
+      },
+      "allowedKeyAlgorithms": [
+        "RSA",
+        "ECDSA"
+      ],
+      "minimumKeyLength": 2048,
+      "signatureAlgorithm": "SHA256WithRSA"
+    },
+    {
+      "name": "CONTAINER_SIGNING",
+      "type": "END_ENTITY",
+      "description": "Container Image Signing Certificate (Cosign, Notary)",
+      "validity": "365d",
+      "keyUsage": [
+        "digitalSignature"
+      ],
+      "extendedKeyUsage": [
+        "codeSigning"
+      ],
+      "subjectAlternativeNameExtension": {
+        "enabled": true,
+        "critical": false,
+        "types": [
+          "uniformResourceIdentifier"
+        ]
+      },
+      "allowedKeyAlgorithms": [
+        "ECDSA"
+      ],
+      "minimumKeyLength": 256,
+      "signatureAlgorithm": "SHA256withECDSA"
+    },
+    {
+      "name": "IOT_DEVICE",
+      "type": "END_ENTITY",
+      "description": "IoT Device Certificate Profile",
+      "validity": "1095d",
+      "keyUsage": [
+        "digitalSignature",
+        "keyAgreement"
+      ],
+      "extendedKeyUsage": [
+        "clientAuth"
+      ],
+      "subjectAlternativeNameExtension": {
+        "enabled": true,
+        "critical": false,
+        "types": [
+          "uniformResourceIdentifier"
+        ]
+      },
+      "allowedKeyAlgorithms": [
+        "ECDSA"
+      ],
+      "minimumKeyLength": 256,
+      "signatureAlgorithm": "SHA256withECDSA"
+    },
+    {
+      "name": "TIMESTAMPING",
+      "type": "END_ENTITY",
+      "description": "Timestamping Authority Certificate",
+      "validity": "3650d",
+      "keyUsage": [
+        "digitalSignature",
+        "nonRepudiation"
+      ],
+      "extendedKeyUsage": [
+        "timeStamping"
+      ],
+      "allowedKeyAlgorithms": [
+        "RSA"
+      ],
+      "minimumKeyLength": 4096,
+      "signatureAlgorithm": "SHA256WithRSA"
+    }
+  ]
+}
+

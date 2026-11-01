@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: harbor
+  labels:
+    name: harbor
+    linkerd.io/inject: enabled
+  annotations:
+    description: "Harbor container registry for PKI platform"
+

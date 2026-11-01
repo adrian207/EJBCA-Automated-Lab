@@ -1,0 +1,226 @@
+## Grafana Tempo Configuration for Distributed Tracing
+## Install with: helm install tempo grafana/tempo-distributed -f tempo-values.yaml -n observability
+
+fullnameOverride: tempo
+
+## Global Configuration
+global:
+  clusterDomain: cluster.local
+
+## Tempo Configuration
+tempo:
+  repository: grafana/tempo
+  tag: 2.3.1
+  pullPolicy: IfNotPresent
+  
+  ## Tempo configuration
+  structuredConfig:
+    auth_enabled: false
+    
+    server:
+      http_listen_port: 3100
+      log_level: info
+    
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+        jaeger:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:14250
+            thrift_http:
+              endpoint: 0.0.0.0:14268
+        zipkin:
+          endpoint: 0.0.0.0:9411
+    
+    ingester:
+      trace_idle_period: 10s
+      max_block_bytes: 1048576
+      max_block_duration: 5m
+    
+    compactor:
+      compaction:
+        block_retention: 168h  # 7 days
+    
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: ejbca-platform
+      storage:
+        path: /var/tempo/wal
+        remote_write:
+          - url: http://prometheus-server.observability:80/api/v1/write
+            send_exemplars: true
+      traces_storage:
+        path: /var/tempo/generator/traces
+    
+    storage:
+      trace:
+        backend: azure
+        azure:
+          container_name: tempo-traces
+          storage_account_name: ${AZURE_STORAGE_ACCOUNT}
+          storage_account_key: ${AZURE_STORAGE_KEY}
+          use_managed_identity: true
+        wal:
+          path: /var/tempo/wal
+        pool:
+          max_workers: 100
+          queue_depth: 10000
+    
+    overrides:
+      defaults:
+        metrics_generator:
+          processors: [service-graphs, span-metrics]
+          generate_native_histograms: both
+
+## Distributor
+distributor:
+  replicas: 3
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+## Ingester
+ingester:
+  replicas: 3
+  
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: managed-premium
+  
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+## Querier
+querier:
+  replicas: 3
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+## Query Frontend
+queryFrontend:
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+## Compactor
+compactor:
+  replicas: 1
+  
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: managed-premium
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+## Metrics Generator
+metricsGenerator:
+  enabled: true
+  replicas: 2
+  
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: managed-premium
+  
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+## Gateway
+gateway:
+  enabled: true
+  replicas: 2
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    hosts:
+      - host: tempo.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: tempo-tls
+        hosts:
+          - tempo.local
+
+## Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+## Memcached
+memcached:
+  enabled: true
+  replicas: 2
+

@@ -1,0 +1,70 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: observability-stack
+  namespace: argocd
+spec:
+  generators:
+    - list:
+        elements:
+          - name: prometheus
+            chart: kube-prometheus-stack
+            repo: https://prometheus-community.github.io/helm-charts
+            namespace: observability
+            valuesFile: kube-prometheus-stack-values.yaml
+          
+          - name: loki
+            chart: loki-distributed
+            repo: https://grafana.github.io/helm-charts
+            namespace: observability
+            valuesFile: loki-values.yaml
+          
+          - name: tempo
+            chart: tempo-distributed
+            repo: https://grafana.github.io/helm-charts
+            namespace: observability
+            valuesFile: tempo-values.yaml
+          
+          - name: opentelemetry-collector
+            chart: opentelemetry-collector
+            repo: https://open-telemetry.github.io/opentelemetry-helm-charts
+            namespace: observability
+            valuesFile: opentelemetry-collector-values.yaml
+  
+  template:
+    metadata:
+      name: '{{name}}'
+      namespace: argocd
+    spec:
+      project: pki-platform
+      
+      source:
+        repoURL: '{{repo}}'
+        chart: '{{chart}}'
+        targetRevision: '*'
+        helm:
+          valueFiles:
+            - $values/kubernetes/observability/{{valuesFile}}
+      
+      sources:
+        - repoURL: https://github.com/YOUR-ORG/EJBCA---Automated-Lab.git
+          targetRevision: HEAD
+          ref: values
+      
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{namespace}}'
+      
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+

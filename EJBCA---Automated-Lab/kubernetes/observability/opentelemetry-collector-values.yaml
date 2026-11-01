@@ -1,0 +1,359 @@
+## OpenTelemetry Collector Configuration
+## Install with: helm install opentelemetry-collector open-telemetry/opentelemetry-collector -f opentelemetry-collector-values.yaml -n observability
+
+fullnameOverride: otel-collector
+
+mode: deployment
+
+## Deployment Configuration
+replicaCount: 3
+
+## Image Configuration
+image:
+  repository: otel/opentelemetry-collector-k8s
+  tag: 0.91.0
+
+## Resource Configuration
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+## Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+## OpenTelemetry Collector Configuration
+config:
+  receivers:
+    ## OTLP Receiver (default protocol)
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    
+    ## Jaeger Receiver (for backward compatibility)
+    jaeger:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
+    
+    ## Zipkin Receiver
+    zipkin:
+      endpoint: 0.0.0.0:9411
+    
+    ## Prometheus Receiver
+    prometheus:
+      config:
+        scrape_configs:
+          - job_name: 'otel-collector'
+            scrape_interval: 10s
+            static_configs:
+              - targets: ['0.0.0.0:8888']
+    
+    ## Kubernetes Cluster Receiver
+    k8s_cluster:
+      auth_type: serviceAccount
+      node_conditions_to_report: [Ready, MemoryPressure, DiskPressure, NetworkUnavailable]
+      allocatable_types_to_report: [cpu, memory, storage]
+    
+    ## Kubernetes Objects Receiver
+    k8sobjects:
+      auth_type: serviceAccount
+      objects:
+        - name: pods
+          mode: pull
+        - name: events
+          mode: watch
+  
+  processors:
+    ## Batch Processor
+    batch:
+      timeout: 10s
+      send_batch_size: 1024
+      send_batch_max_size: 2048
+    
+    ## Memory Limiter
+    memory_limiter:
+      check_interval: 1s
+      limit_mib: 3072
+      spike_limit_mib: 512
+    
+    ## Resource Detection
+    resourcedetection:
+      detectors: [env, system, azure, docker, kubernetes]
+      timeout: 5s
+      override: false
+    
+    ## K8s Attributes Processor
+    k8sattributes:
+      auth_type: "serviceAccount"
+      passthrough: false
+      filter:
+        node_from_env_var: KUBE_NODE_NAME
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.deployment.name
+          - k8s.statefulset.name
+          - k8s.daemonset.name
+          - k8s.cronjob.name
+          - k8s.job.name
+          - k8s.node.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.pod.start_time
+        labels:
+          - tag_name: app.label.component
+            key: app.kubernetes.io/component
+            from: pod
+        annotations:
+          - tag_name: app.annotation.version
+            key: app.kubernetes.io/version
+            from: pod
+      pod_association:
+        - sources:
+            - from: resource_attribute
+              name: k8s.pod.ip
+        - sources:
+            - from: resource_attribute
+              name: k8s.pod.uid
+        - sources:
+            - from: connection
+    
+    ## Attributes Processor
+    attributes:
+      actions:
+        - key: environment
+          value: ${ENVIRONMENT}
+          action: insert
+        - key: cluster
+          value: ${CLUSTER_NAME}
+          action: insert
+    
+    ## Resource Processor
+    resource:
+      attributes:
+        - key: service.instance.id
+          from_attribute: k8s.pod.uid
+          action: insert
+        - key: host.name
+          from_attribute: k8s.node.name
+          action: upsert
+    
+    ## Span Processor
+    span:
+      name:
+        to_attributes:
+          rules:
+            - ^\/api\/v1\/(?P<version>[^/]+).*$
+  
+  exporters:
+    ## Prometheus Exporter
+    prometheus:
+      endpoint: "0.0.0.0:8889"
+      namespace: otel
+      const_labels:
+        environment: ${ENVIRONMENT}
+      resource_to_telemetry_conversion:
+        enabled: true
+    
+    ## Loki Exporter
+    loki:
+      endpoint: http://loki-gateway.observability:80/loki/api/v1/push
+      labels:
+        resource:
+          container.name: "container_name"
+          k8s.cluster.name: "k8s_cluster_name"
+          k8s.namespace.name: "k8s_namespace_name"
+          k8s.pod.name: "k8s_pod_name"
+        attributes:
+          severity: "severity"
+          http.status_code: "http_status_code"
+    
+    ## Tempo Exporter (for traces)
+    otlp/tempo:
+      endpoint: tempo.observability:4317
+      tls:
+        insecure: true
+    
+    ## Azure Monitor Exporter
+    azuremonitor:
+      instrumentation_key: ${APPLICATIONINSIGHTS_INSTRUMENTATION_KEY}
+      endpoint: https://dc.services.visualstudio.com/v2/track
+      max_batch_size: 1024
+      max_batch_interval: 10s
+    
+    ## Debug Exporter (for troubleshooting)
+    debug:
+      verbosity: detailed
+      sampling_initial: 5
+      sampling_thereafter: 200
+    
+    ## Logging Exporter
+    logging:
+      loglevel: info
+  
+  extensions:
+    ## Health Check Extension
+    health_check:
+      endpoint: 0.0.0.0:13133
+    
+    ## Performance Profiler
+    pprof:
+      endpoint: 0.0.0.0:1777
+    
+    ## zPages Extension
+    zpages:
+      endpoint: 0.0.0.0:55679
+  
+  service:
+    extensions: [health_check, pprof, zpages]
+    
+    pipelines:
+      ## Traces Pipeline
+      traces:
+        receivers: [otlp, jaeger, zipkin]
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource, attributes, batch]
+        exporters: [otlp/tempo, azuremonitor, prometheus]
+      
+      ## Metrics Pipeline
+      metrics:
+        receivers: [otlp, prometheus, k8s_cluster]
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource, attributes, batch]
+        exporters: [prometheus, azuremonitor]
+      
+      ## Logs Pipeline
+      logs:
+        receivers: [otlp, k8sobjects]
+        processors: [memory_limiter, k8sattributes, resourcedetection, resource, attributes, batch]
+        exporters: [loki, azuremonitor]
+    
+    telemetry:
+      logs:
+        level: info
+      metrics:
+        level: detailed
+        address: 0.0.0.0:8888
+
+## Service Configuration
+service:
+  type: ClusterIP
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8889"
+    prometheus.io/path: "/metrics"
+
+## Service Monitor for Prometheus
+serviceMonitor:
+  enabled: true
+  metricsEndpoints:
+    - port: prometheus
+      interval: 30s
+
+## Pod Monitor
+podMonitor:
+  enabled: true
+
+## RBAC Configuration
+rbac:
+  create: true
+
+## Service Account
+serviceAccount:
+  create: true
+  name: otel-collector
+
+## Cluster Role for K8s Metadata
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods", "namespaces", "nodes"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["replicasets", "deployments", "daemonsets", "statefulsets"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["batch"]
+      resources: ["jobs", "cronjobs"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: [""]
+      resources: ["events"]
+      verbs: ["get", "list", "watch"]
+
+## Pod Disruption Budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+## Environment Variables
+env:
+  - name: KUBE_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+  - name: ENVIRONMENT
+    value: "production"
+  - name: CLUSTER_NAME
+    value: "ejbca-aks-cluster"
+
+## Ports
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    hostPort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+  jaeger-grpc:
+    enabled: true
+    containerPort: 14250
+    servicePort: 14250
+    protocol: TCP
+  jaeger-thrift-http:
+    enabled: true
+    containerPort: 14268
+    servicePort: 14268
+    protocol: TCP
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
+    protocol: TCP
+  prometheus:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+  metrics:
+    enabled: true
+    containerPort: 8888
+    servicePort: 8888
+    protocol: TCP
+

@@ -40,8 +40,7 @@ variable "use_random_suffix" {
   default     = true
 }
 
-variable 
-"tags" {
+variable "tags" {
   description = "Additional tags for resources"
   type        = map(string)
   default     = {}
@@ -61,8 +60,7 @@ variable "aks_node_count" {
 }
 
 variable "aks_node_vm_size" {
-  description = "VM size for 
-AKS nodes"
+  description = "VM size for AKS nodes"
   type        = string
   default     = "Standard_D4s_v3"
 }
@@ -81,8 +79,7 @@ variable "aks_min_node_count" {
 
 variable "aks_max_node_count" {
   description = "Maximum number of nodes for autoscaling"
-  type        
-= number
+  type        = number
   default     = 10
 }
 
@@ -105,8 +102,7 @@ variable "vnet_address_space" {
   default     = ["10.0.0.0/16"]
 }
 
-variable 
-"aks_subnet_address_prefix" {
+variable "aks_subnet_address_prefix" {
   description = "Address prefix for AKS subnet"
   type        = string
   default     = "10.0.1.0/24"
@@ -126,8 +122,7 @@ variable "database_subnet_address_prefix" {
 
 variable "vpn_gateway_subnet_address_prefix" {
   description = "Address prefix for VPN Gateway subnet"
-  type 
-       = string
+  type        = string
   default     = "10.0.255.0/27"
 }
 
@@ -164,8 +159,7 @@ variable "storage_account_tier" {
 
 variable "storage_account_replication_type" {
   description = "Storage replication type"
-  type   
-     = string
+  type        = string
   default     = "GRS"
 }
 
@@ -188,8 +182,7 @@ variable "postgresql_storage_mb" {
   default     = 131072 # 128GB
 }
 
-variable "postgresql_backup_retention_days" 
-{
+variable "postgresql_backup_retention_days" {
   description = "Backup retention days"
   type        = number
   default     = 30
@@ -209,8 +202,7 @@ variable "acr_sku" {
 
   validation {
     condition     = contains(["Basic", "Standard", "Premium"], var.acr_sku)
- 
-   error_message = "ACR SKU must be Basic, Standard, or Premium."
+    error_message = "ACR SKU must be Basic, Standard, or Premium."
 }
 }
 
@@ -235,8 +227,7 @@ variable "rhel_vm_size" {
 }
 
 variable "rhel_admin_username" {
-  description = "Admin username for 
-RHEL"
+  description = "Admin username for RHEL"
   type        = string
   default     = "adminuser"
 }

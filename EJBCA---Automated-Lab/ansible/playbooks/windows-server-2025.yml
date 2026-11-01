@@ -1,0 +1,192 @@
+---
+- name: Configure Windows Server 2025 for PKI Platform
+  hosts: windows
+  gather_facts: yes
+  
+  vars:
+    required_features:
+      - NET-Framework-45-Core
+      - NET-Framework-45-Features
+      - Web-Server
+      - Web-WebServer
+      - Web-Common-Http
+      - Web-Mgmt-Tools
+    
+    required_software:
+      - git
+      - curl
+      - wget
+      - 7zip
+      - powershell-core
+      - azure-cli
+      - kubernetes-cli
+      - openssl.light
+      - jdk11
+      - dotnet-sdk
+
+  tasks:
+    - name: Set timezone to UTC
+      community.windows.win_timezone:
+        timezone: UTC
+
+    - name: Install Chocolatey package manager
+      win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install required Windows features
+      ansible.windows.win_feature:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ required_features }}"
+      register: feature_result
+
+    - name: Install software packages via Chocolatey
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ required_software }}"
+
+    - name: Create PKI directories
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - C:\PKI
+        - C:\PKI\certs
+        - C:\PKI\requests
+        - C:\PKI\scripts
+        - C:\PKI\logs
+
+    - name: Configure Windows Firewall for PKI services
+      community.windows.win_firewall_rule:
+        name: "{{ item.name }}"
+        localport: "{{ item.port }}"
+        action: allow
+        direction: in
+        protocol: tcp
+        state: present
+        enabled: yes
+      loop:
+        - { name: "HTTPS", port: "443" }
+        - { name: "HTTP", port: "80" }
+        - { name: "LDAP", port: "389" }
+        - { name: "LDAPS", port: "636" }
+        - { name: "OCSP", port: "8080" }
+        - { name: "CMP", port: "8442" }
+
+    - name: Install Azure PowerShell modules
+      win_shell: |
+        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+        Install-Module -Name Az -Repository PSGallery -Force -AllowClobber
+        Install-Module -Name Az.KeyVault -Force
+      args:
+        creates: C:\Program Files\WindowsPowerShell\Modules\Az
+
+    - name: Download certificate enrollment scripts
+      ansible.windows.win_copy:
+        content: |
+          # Certificate Enrollment Script for Windows
+          param(
+              [Parameter(Mandatory=$true)]
+              [string]$EJBCAUrl,
+              
+              [Parameter(Mandatory=$true)]
+              [string]$CertificateProfile,
+              
+              [Parameter(Mandatory=$true)]
+              [string]$EndEntityProfile
+          )
+
+          # Generate key pair
+          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=$env:COMPUTERNAME" `
+              -KeyUsage DigitalSignature, KeyEncipherment `
+              -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.1,1.3.6.1.5.5.7.3.2") `
+              -CertStoreLocation "Cert:\LocalMachine\My" `
+              -KeyExportPolicy Exportable `
+              -KeyLength 2048
+
+          # Create certificate request
+          $csr = [System.Convert]::ToBase64String($cert.GetRawCertData())
+
+          # Submit to EJBCA
+          $response = Invoke-RestMethod -Uri "$EJBCAUrl/ejbca/ejbca-rest-api/v1/certificate/enroll" `
+              -Method Post `
+              -Headers @{"Content-Type"="application/json"} `
+              -Body (@{
+                  certificate_request = $csr
+                  certificate_profile_name = $CertificateProfile
+                  end_entity_profile_name = $EndEntityProfile
+                  username = $env:COMPUTERNAME
+                  password = (New-Guid).ToString()
+              } | ConvertTo-Json)
+
+          Write-Host "Certificate enrolled successfully"
+          Write-Host "Thumbprint: $($cert.Thumbprint)"
+        dest: C:\PKI\scripts\Enroll-Certificate.ps1
+
+    - name: Configure Windows Event Log forwarding
+      win_shell: |
+        wevtutil sl Security /ca:O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;S-1-5-20)
+        wevtutil sl Application /ca:O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;S-1-5-20)
+        wevtutil sl System /ca:O:BAG:SYD:(A;;0xf0005;;;SY)(A;;0x5;;;BA)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;S-1-5-20)
+
+    - name: Enable Windows Remote Management (WinRM)
+      win_shell: |
+        Enable-PSRemoting -Force
+        Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true
+        Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $false
+
+    - name: Set up scheduled task for certificate renewal
+      community.windows.win_scheduled_task:
+        name: Certificate Renewal Check
+        description: Checks for expiring certificates and renews them
+        actions:
+          - path: PowerShell.exe
+            arguments: -ExecutionPolicy Bypass -File C:\PKI\scripts\Enroll-Certificate.ps1
+        triggers:
+          - type: daily
+            start_boundary: '2025-01-01T02:00:00'
+        username: SYSTEM
+        state: present
+        enabled: yes
+
+    - name: Install monitoring agent (Azure Monitor)
+      win_shell: |
+        $workspaceId = $env:AZURE_LOG_ANALYTICS_WORKSPACE_ID
+        $workspaceKey = $env:AZURE_LOG_ANALYTICS_WORKSPACE_KEY
+        
+        if ($workspaceId -and $workspaceKey) {
+          Invoke-WebRequest -Uri https://aka.ms/MMASetup-AMD64 -OutFile C:\Temp\MMASetup-AMD64.exe
+          Start-Process C:\Temp\MMASetup-AMD64.exe -ArgumentList "/C /T:C:\Temp\MMA" -Wait
+          Start-Process C:\Temp\MMA\setup.exe -ArgumentList "/qn ADD_OPINSIGHTS_WORKSPACE=1 OPINSIGHTS_WORKSPACE_ID=$workspaceId OPINSIGHTS_WORKSPACE_KEY=$workspaceKey AcceptEndUserLicenseAgreement=1" -Wait
+        }
+      ignore_errors: yes
+
+    - name: Reboot if required
+      ansible.windows.win_reboot:
+        reboot_timeout: 600
+      when: feature_result.changed
+
+    - name: Verify installation
+      win_shell: |
+        Write-Host "Checking installed software..."
+        choco list --local-only
+        
+        Write-Host "`nChecking Java version..."
+        java -version
+        
+        Write-Host "`nChecking Azure CLI..."
+        az --version
+        
+        Write-Host "`nChecking kubectl..."
+        kubectl version --client
+      register: verification_result
+
+    - name: Display verification results
+      debug:
+        var: verification_result.stdout_lines
+

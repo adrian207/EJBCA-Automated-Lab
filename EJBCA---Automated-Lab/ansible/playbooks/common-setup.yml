@@ -1,0 +1,39 @@
+---
+- name: Common Setup for All Servers
+  hosts: all
+  gather_facts: yes
+
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+      when: ansible_os_family != "Windows"
+
+    - name: Configure DNS resolution
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "127.0.0.1 localhost"
+        - "{{ ansible_default_ipv4.address }} {{ inventory_hostname }}"
+      when: ansible_os_family != "Windows"
+
+    - name: Synchronize time
+      ansible.builtin.service:
+        name: chronyd
+        state: started
+        enabled: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Display system information
+      debug:
+        msg:
+          - "Hostname: {{ ansible_hostname }}"
+          - "OS Family: {{ ansible_os_family }}"
+          - "OS Distribution: {{ ansible_distribution | default('N/A') }}"
+          - "OS Version: {{ ansible_distribution_version | default('N/A') }}"
+          - "IP Address: {{ ansible_default_ipv4.address | default('N/A') }}"
+          - "CPU Cores: {{ ansible_processor_vcpus }}"
+          - "Memory: {{ ansible_memtotal_mb }} MB"
+

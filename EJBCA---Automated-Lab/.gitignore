@@ -1,0 +1,70 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+tfplan
+crash.log
+crash.*.log
+
+# Ansible
+*.retry
+*.log
+ansible.cfg.local
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+*.truststore
+secrets/
+*.secret
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Helm
+charts/*/charts/
+*.tgz
+
+# Azure
+.azure/
+
+# Logs
+logs/
+*.log
+
+# Backup
+backup/
+*.backup
+
+# Temporary
+tmp/
+temp/
+.cache/
+
+# Node modules (if any JS tools)
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+

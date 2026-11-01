@@ -1,0 +1,290 @@
+## Harbor Registry Configuration
+## Install with: helm install harbor harbor/harbor -f harbor-values.yaml -n harbor
+
+expose:
+  type: ingress
+  tls:
+    enabled: true
+    certSource: secret
+    secret:
+      secretName: "harbor-tls"
+  ingress:
+    hosts:
+      core: harbor.local
+      notary: notary.local
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "900"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "900"
+
+externalURL: https://harbor.local
+
+## Persistence Configuration
+persistence:
+  enabled: true
+  resourcePolicy: "keep"
+  persistentVolumeClaim:
+    registry:
+      storageClass: "managed-premium"
+      size: 200Gi
+      accessMode: ReadWriteOnce
+    chartmuseum:
+      storageClass: "managed-premium"
+      size: 20Gi
+      accessMode: ReadWriteOnce
+    jobservice:
+      jobLog:
+        storageClass: "managed-premium"
+        size: 10Gi
+        accessMode: ReadWriteOnce
+    database:
+      storageClass: "managed-premium"
+      size: 20Gi
+      accessMode: ReadWriteOnce
+    redis:
+      storageClass: "managed-premium"
+      size: 10Gi
+      accessMode: ReadWriteOnce
+    trivy:
+      storageClass: "managed-premium"
+      size: 20Gi
+      accessMode: ReadWriteOnce
+
+## Image Pull Policy
+imagePullPolicy: IfNotPresent
+
+## Log Level
+logLevel: info
+
+## Harbor Admin Password - SECURED
+# Password will be provided via external secret from Azure Key Vault
+# Create secret first: az keyvault secret set --vault-name <vault> --name harbor-admin-password --value <strong-password>
+harborAdminPassword: ""  # SECURED: Use existingSecret instead
+existingSecretAdminPassword: "harbor-admin-secret"
+existingSecretAdminPasswordKey: "HARBOR_ADMIN_PASSWORD"
+
+## Secret Key for encryption
+secretKey: "not-a-secure-key"  # Change this!
+
+## Database Configuration
+database:
+  type: internal
+  internal:
+    image:
+      repository: goharbor/harbor-db
+      tag: v2.10.0
+    password: "changeme"  # Change this!
+    shmSizeLimit: 512Mi
+    livenessProbe:
+      timeoutSeconds: 1
+    readinessProbe:
+      timeoutSeconds: 1
+  ## External PostgreSQL (recommended for production)
+  # type: external
+  # external:
+  #   host: "postgresql.database"
+  #   port: "5432"
+  #   username: "harbor"
+  #   password: "changeme"
+  #   coreDatabase: "registry"
+  #   notaryServerDatabase: "notary_server"
+  #   notarySignerDatabase: "notary_signer"
+  #   sslmode: "require"
+
+## Redis Configuration
+redis:
+  type: internal
+  internal:
+    image:
+      repository: goharbor/redis-photon
+      tag: v2.10.0
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+  ## External Redis (recommended for production)
+  # type: external
+  # external:
+  #   host: "redis.cache"
+  #   port: "6379"
+  #   password: "changeme"
+
+## Core Component
+core:
+  replicas: 3
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 2000m
+  ## Auto Scaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+## Job Service
+jobservice:
+  replicas: 2
+  maxJobWorkers: 10
+  jobLoggers:
+    - file
+    - database
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: 2000m
+
+## Registry Component
+registry:
+  replicas: 3
+  registry:
+    image:
+      repository: goharbor/registry-photon
+      tag: v2.10.0
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 500m
+      limits:
+        memory: 2Gi
+        cpu: 2000m
+  controller:
+    image:
+      repository: goharbor/harbor-registryctl
+      tag: v2.10.0
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+  ## Auto Scaling
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  
+  ## Azure Blob Storage for registry (recommended)
+  # storageBackend:
+  #   type: azure
+  #   azure:
+  #     accountname: "azurestorageaccount"
+  #     accountkey: "base64encodedaccountkey"
+  #     container: "harbor-registry"
+  #     realm: "core.windows.net"
+
+## ChartMuseum (Helm Chart Repository)
+chartmuseum:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 500m
+  ## Auto Scaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+## Trivy Scanner
+trivy:
+  enabled: true
+  replicas: 2
+  gitHubToken: ""
+  skipUpdate: false
+  offlineScan: false
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+## Notary (Content Trust)
+notary:
+  enabled: true
+  server:
+    replicas: 2
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+  signer:
+    replicas: 2
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+
+## Portal (Web UI)
+portal:
+  replicas: 2
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+
+## Metrics for Prometheus
+metrics:
+  enabled: true
+  core:
+    path: /metrics
+    port: 8001
+  registry:
+    path: /metrics
+    port: 8001
+  jobservice:
+    path: /metrics
+    port: 8001
+  exporter:
+    path: /metrics
+    port: 8001
+  serviceMonitor:
+    enabled: true
+    interval: "30s"
+
+## Network Policy
+networkPolicy:
+  enabled: true
+
+## Pod Security Policy
+podSecurityPolicy:
+  enabled: true
+
+## Cache Configuration
+cache:
+  enabled: true
+  expireHours: 24
+
+## Proxy Configuration (for external registries)
+proxy:
+  httpProxy: ""
+  httpsProxy: ""
+  noProxy: "127.0.0.1,localhost,.local,.internal"
+
+## OIDC/OAuth Configuration (optional)
+# oidc:
+#   name: "Azure AD"
+#   endpoint: "https://login.microsoftonline.com/<tenant-id>/v2.0"
+#   clientId: "<client-id>"
+#   clientSecret: "<client-secret>"
+#   groupsClaim: "groups"
+#   adminGroup: "harbor-admins"
+#   scope: "openid,profile,email"
+#   verifyCert: true
+
