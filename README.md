@@ -60,6 +60,14 @@ The folder's own [README](EJBCA---Automated-Lab/README.md), [QUICKSTART](EJBCA--
 - **CI workflows don't run.** The GitHub Actions workflows sit in `EJBCA---Automated-Lab/.github/workflows/`; GitHub only runs workflows from the repository root's `.github/workflows/`.
 - Checked with `terraform validate`, YAML parsing and shellcheck, not deployed end to end in this repository.
 
+## Related repositories
+
+These repositories cover different parts of PKI work:
+
+- **EJBCA-Automated-Lab** (this repository): run an open-source CA (EJBCA Community Edition) on AKS to test enrolment and certificate automation
+- **[Keyfactor-CLM-Implementation](https://github.com/adrian207/Keyfactor-CLM-Implementation)**: plan and operate certificate lifecycle management on Keyfactor Command (design, runbooks, API automation examples)
+- **[PKI-Consolidation](https://github.com/adrian207/PKI-Consolidation)**: merge two or more existing AD CS hierarchies into one, for example after an acquisition
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
